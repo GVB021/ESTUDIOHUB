@@ -709,6 +709,9 @@ export default function RecordingRoom() {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const isRemoteAction = useRef(false);
+  const wsReconnectTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -736,6 +739,68 @@ export default function RecordingRoom() {
       setGain(micState, deviceSettings.inputGain);
     }
   }, [micState, deviceSettings.inputGain]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/video-sync?sessionId=${sessionId}`);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data) as { type: string; currentTime: number; lineIndex?: number };
+          const video = videoRef.current;
+          if (!video) return;
+
+          isRemoteAction.current = true;
+
+          if (msg.type === "video-seek" || msg.type === "video-play" || msg.type === "video-pause") {
+            video.currentTime = msg.currentTime;
+          }
+
+          if (msg.type === "video-play") {
+            video.play().catch(() => {});
+            setIsPlaying(true);
+          } else if (msg.type === "video-pause") {
+            video.pause();
+            setIsPlaying(false);
+          }
+
+          if (msg.type === "video-seek" && msg.lineIndex !== undefined) {
+            setCurrentLine(msg.lineIndex);
+          }
+
+          isRemoteAction.current = false;
+        } catch {
+          // ignore malformed messages
+        }
+      };
+
+      ws.onclose = () => {
+        if (!destroyed) {
+          wsReconnectTimer.current = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      destroyed = true;
+      if (wsReconnectTimer.current) clearTimeout(wsReconnectTimer.current);
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     localStorage.setItem("vhub_device_settings", JSON.stringify(deviceSettings));
@@ -867,8 +932,12 @@ export default function RecordingRoom() {
     return () => window.removeEventListener("keydown", handler, true);
   }, [listeningFor]);
 
-  const emitVideoEvent = useCallback((_event: string, _data: any) => {
-    // Video sync removed - using Daily.co for communication
+  const emitVideoEvent = useCallback((event: string, data: any) => {
+    if (isRemoteAction.current) return;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: event, ...data }));
+    }
   }, []);
 
   const playVideo = useCallback(() => {
