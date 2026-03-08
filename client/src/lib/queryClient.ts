@@ -37,6 +37,11 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
+    if (res.status === 401) {
+      window.location.href = "/api/login";
+      return null;
+    }
+
     await throwIfResNotOk(res);
     return await res.json();
   };

@@ -1,21 +1,23 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle } from "lucide-react";
+import { Link } from "wouter";
+import { pt } from "@/lib/i18n";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md mx-4">
-        <CardContent className="pt-6">
-          <div className="flex mb-4 gap-2">
-            <AlertCircle className="h-8 w-8 text-red-500" />
-            <h1 className="text-2xl font-bold text-gray-900">404 Page Not Found</h1>
-          </div>
-
-          <p className="mt-4 text-sm text-gray-600">
-            Did you forget to add the page to the router?
-          </p>
-        </CardContent>
-      </Card>
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="text-center page-enter">
+        <p className="text-8xl font-bold text-muted-foreground/15 tracking-tighter select-none mb-6 font-mono">
+          404
+        </p>
+        <h1 className="vhub-page-title mb-2">{pt.common.notFound}</h1>
+        <p className="vhub-page-subtitle !mt-0 mb-8">
+          {pt.common.notFoundDesc}
+        </p>
+        <Link href="/studios">
+          <button className="vhub-btn-md vhub-btn-primary press-effect" data-testid="button-go-home">
+            Ir para Estudios
+          </button>
+        </Link>
+      </div>
     </div>
   );
 }

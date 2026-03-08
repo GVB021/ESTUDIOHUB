@@ -1,0 +1,27 @@
+import { Film } from "lucide-react";
+import { StatusBadge } from "@/components/ui/design-system";
+import { Link } from "wouter";
+
+interface Production {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export function ProductionCard({ production, studioId }: { production: Production; studioId: string }) {
+  return (
+    <Link
+      href={`/studio/${studioId}/productions`}
+      className="flex items-center justify-between p-3 rounded-lg bg-background/60 border border-border/40 cursor-pointer transition-all duration-150 ease-out hover:border-border/70 hover:bg-background hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:scale-[1.008] active:scale-[0.997] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 no-underline"
+      data-testid={`card-dashboard-production-${production.id}`}
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <Film className="h-3.5 w-3.5 text-primary" />
+        </div>
+        <span className="text-sm font-medium text-foreground truncate">{production.name}</span>
+      </div>
+      <StatusBadge status={production.status} className="ml-2 shrink-0" />
+    </Link>
+  );
+}
