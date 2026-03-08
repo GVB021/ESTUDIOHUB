@@ -26,6 +26,8 @@ import {
   User,
   Edit3,
   Download,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -55,6 +57,7 @@ import { analyzeTakeQuality, type QualityMetrics } from "@/lib/audio/qualityAnal
 
 function JitsiMeetPanel({ roomId, displayName }: { roomId: string; displayName: string }) {
   const [isOpen, setIsOpen] = useState(true);
+  const [isCompact, setIsCompact] = useState(false);
 
   const jitsiRoom = `vhub-session-${roomId}`.replace(/[^a-zA-Z0-9-]/g, "-");
   const jitsiUrl = [
@@ -65,22 +68,46 @@ function JitsiMeetPanel({ roomId, displayName }: { roomId: string; displayName: 
     `&userInfo.displayName=${encodeURIComponent(displayName)}`,
   ].join("");
 
+  const panelHeight = isOpen ? (isCompact ? "200px" : "400px") : "0px";
+
   return (
     <div className="mt-4 rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }} data-testid="panel-jitsi">
       <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: isOpen ? "1px solid rgba(255,255,255,0.06)" : "none", background: "rgba(255,255,255,0.03)" }}>
         <span className="text-[11px] font-medium flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.60)" }}>
           <Mic className="w-3 h-3" style={{ color: "hsl(160 84% 60%)" }} /> Chat de Voz
         </span>
-        <button
-          onClick={() => setIsOpen(v => !v)}
-          className="text-[11px] transition-colors flex items-center gap-1" style={{ color: "rgba(255,255,255,0.40)" }}
-          data-testid="button-toggle-jitsi"
-        >
-          {isOpen ? <><X className="w-3 h-3" /> Minimizar</> : <><Mic className="w-3 h-3" /> Abrir</>}
-        </button>
+        <div className="flex items-center gap-2">
+          {isOpen && !isCompact && (
+            <button
+              onClick={() => setIsCompact(true)}
+              className="text-[11px] transition-colors flex items-center gap-1"
+              style={{ color: "rgba(255,255,255,0.40)" }}
+              data-testid="button-compact-jitsi"
+            >
+              <Minimize2 className="w-3 h-3" /> Reduzir
+            </button>
+          )}
+          {isOpen && isCompact && (
+            <button
+              onClick={() => setIsCompact(false)}
+              className="text-[11px] transition-colors flex items-center gap-1"
+              style={{ color: "rgba(255,255,255,0.40)" }}
+              data-testid="button-expand-jitsi"
+            >
+              <Maximize2 className="w-3 h-3" /> Expandir
+            </button>
+          )}
+          <button
+            onClick={() => setIsOpen(v => !v)}
+            className="text-[11px] transition-colors flex items-center gap-1" style={{ color: "rgba(255,255,255,0.40)" }}
+            data-testid="button-toggle-jitsi"
+          >
+            {isOpen ? <><X className="w-3 h-3" /> Minimizar</> : <><Mic className="w-3 h-3" /> Abrir</>}
+          </button>
+        </div>
       </div>
       <div style={{
-        height: isOpen ? "200px" : "0px",
+        height: panelHeight,
         overflow: "hidden",
         transition: "height 0.3s ease",
       }}>
@@ -88,7 +115,7 @@ function JitsiMeetPanel({ roomId, displayName }: { roomId: string; displayName: 
           src={jitsiUrl}
           allow="camera; microphone; fullscreen; display-capture; autoplay"
           className="w-full"
-          style={{ height: "200px", border: "none" }}
+          style={{ height: isCompact ? "200px" : "400px", border: "none" }}
           data-testid="iframe-jitsi-meet"
           title="Jitsi Meet Voice Chat"
         />
