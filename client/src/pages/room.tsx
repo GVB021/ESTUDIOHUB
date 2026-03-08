@@ -705,6 +705,7 @@ export default function RecordingRoom() {
   const [qualityMetrics, setQualityMetrics] = useState<QualityMetrics | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const recordingStartTimecodeRef = useRef(0);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -978,10 +979,11 @@ export default function RecordingRoom() {
         countdownTimerRef.current = null;
         playCountdownBeep(micState.audioContext, 1320, 0.2);
         setCountdownValue(0);
+        recordingStartTimecodeRef.current = videoRef.current?.currentTime ?? 0;
         setRecordingStatus("recording");
         startCapture(micState);
         playVideo();
-        console.log("[Room] Recording started — video playing");
+        console.log("[Room] Recording started — video playing, timecode:", recordingStartTimecodeRef.current);
       }
     }, 1000);
   }, [micState, micReady, recordingStatus, recordingProfile, cleanupPreview, toast, playVideo, pauseVideo]);
@@ -1097,7 +1099,7 @@ export default function RecordingRoom() {
       const blob = wavToBlob(wavBuffer);
       const durationSeconds = getDurationSeconds(lastRecording.samples);
 
-      const tcSeconds = Math.floor(scriptLines[currentLine]?.start ?? 0);
+      const tcSeconds = Math.floor(recordingStartTimecodeRef.current);
       const hh = String(Math.floor(tcSeconds / 3600)).padStart(2, "0");
       const mm = String(Math.floor((tcSeconds % 3600) / 60)).padStart(2, "0");
       const ss = String(tcSeconds % 60).padStart(2, "0");
@@ -1153,7 +1155,7 @@ export default function RecordingRoom() {
     } finally {
       setIsSaving(false);
     }
-  }, [lastRecording, previewUrl, isSaving, currentLine, sessionId, qualityMetrics, recordingProfile, cleanupPreview, refetchTakes, toast, charactersList, session, scriptLines]);
+  }, [lastRecording, previewUrl, isSaving, currentLine, sessionId, qualityMetrics, recordingProfile, cleanupPreview, refetchTakes, toast, charactersList, session]);
 
   const handleDiscard = useCallback(() => {
     cleanupPreview();
