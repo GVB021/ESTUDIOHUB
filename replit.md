@@ -7,7 +7,8 @@ V.HUB is a professional virtual dubbing studio management platform (estúdio de 
 Key features:
 - Multi-studio workspace with role-based access control
 - Production and character management with script support (JSON scripts with timecodes)
-- Recording room with browser-based audio capture, waveform visualization, and take management
+- Recording room with browser-based audio capture, waveform visualization, and take management (files saved as `[PERSONAGEM]_[DUBLADOR]_[HHMMSS].WAV`)
+- Jitsi Meet voice chat integration (meet.jit.si public server, default settings, first joiner is moderator)
 - Session scheduling and participant tracking
 - Platform-wide god-level admin panel for platform_owner (real-time polling every 5s)
 - Studio-level admin panel for studio_admin (approve/reject registrations, manage members)
@@ -98,7 +99,7 @@ Preferred communication style: Simple, everyday language.
 
 - Type-safe API contract defined in `shared/routes.ts` using Zod schemas
 - `buildUrl` utility for parameterized URL construction
-- REST endpoints: `/api/studios`, `/api/productions`, `/api/sessions`, `/api/characters`, `/api/staff`, `/api/takes`, `/api/notifications`, `/api/admin/*`, `/api/auth/*`
+- REST endpoints: `/api/studios`, `/api/productions`, `/api/sessions/:sessionId/takes` (POST/GET), `/api/characters`, `/api/staff`, `/api/takes/:id` (DELETE/download), `/api/notifications`, `/api/admin/*`, `/api/auth/*`
 - Public endpoints (no auth): `GET /api/auth/studios-public` (for registration form)
 - All protected routes use `requireAuth` middleware; role-specific routes layer additional middleware
 

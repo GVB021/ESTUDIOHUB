@@ -414,14 +414,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // TAKES
-  app.post("/api/takes", requireAuth, upload.single("audio"), async (req, res) => {
+  app.post("/api/sessions/:sessionId/takes", requireAuth, upload.single("audio"), async (req, res) => {
     try {
-      const {
-        sessionId, characterId, voiceActorId, lineIndex,
-        durationSeconds, qualityScore,
-      } = req.body;
+      const sessionId = req.params.sessionId;
+      const { characterId, voiceActorId, lineIndex, durationSeconds, qualityScore } = req.body;
 
-      if (!sessionId || !characterId || !voiceActorId || lineIndex === undefined) {
+      if (!characterId || !voiceActorId || lineIndex === undefined) {
         return res.status(400).json({ message: "Campos obrigatorios faltando" });
       }
 
@@ -431,7 +429,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let audioUrl = req.body.audioUrl || "";
 
       if (req.file) {
-        const filename = `take_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`;
+        const originalName = req.file.originalname || "";
+        const safeName = originalName.replace(/[^a-zA-Z0-9_.\-]/g, "");
+        const filename = safeName || `take_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`;
         const filePath = path.join(uploadsDir, filename);
         fs.writeFileSync(filePath, req.file.buffer);
         audioUrl = `/uploads/${filename}`;

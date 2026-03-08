@@ -59,13 +59,10 @@ function JitsiMeetPanel({ roomId, displayName }: { roomId: string; displayName: 
   const jitsiRoom = `vhub-session-${roomId}`.replace(/[^a-zA-Z0-9-]/g, "-");
   const jitsiUrl = [
     `https://meet.jit.si/${jitsiRoom}`,
-    `#config.startWithAudioMuted=false`,
-    `&config.startWithVideoMuted=true`,
-    `&config.prejoinPageEnabled=false`,
+    `#config.startWithVideoMuted=true`,
     `&config.disableDeepLinking=true`,
-    `&config.enableWelcomePage=false`,
     `&config.toolbarButtons=["microphone","hangup","tileview","fullscreen","chat"]`,
-    `&userInfo.displayName="${encodeURIComponent(displayName)}"`,
+    `&userInfo.displayName=${encodeURIComponent(displayName)}`,
   ].join("");
 
   return (
@@ -600,9 +597,8 @@ export default function RecordingRoom() {
 
   const handleDownloadTake = useCallback(async (take: any) => {
     try {
-      const token = localStorage.getItem("vhub_token");
       const res = await fetch(`/api/takes/${take.id}/download`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Falha ao baixar take");
       const blob = await res.blob();
@@ -712,11 +708,7 @@ export default function RecordingRoom() {
     })();
   }, [deviceSettings.voiceCaptureMode, recordingStatus, toast]);
 
-  useEffect(() => {
-    if (!recordingProfile && session?.productionId && !sessionLoading && !productionLoading) {
-      setShowProfilePanel(true);
-    }
-  }, [recordingProfile, session?.productionId, sessionLoading, productionLoading]);
+  
 
   const handleSaveProfile = useCallback((profile: RecordingProfile) => {
     setRecordingProfile(profile);
@@ -1002,14 +994,13 @@ export default function RecordingRoom() {
       const wavBuffer = encodeWav(lastRecording.samples);
       const blob = wavToBlob(wavBuffer);
       const durationSeconds = getDurationSeconds(lastRecording.samples);
-      const token = localStorage.getItem("vhub_token");
 
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, "0");
       const mm = String(now.getMinutes()).padStart(2, "0");
       const ss = String(now.getSeconds()).padStart(2, "0");
       const cleanName = (s: string) => s.replace(/[^a-zA-Z0-9]/g, "");
-      const fileName = `${cleanName(recordingProfile.characterName)}_${cleanName(recordingProfile.voiceActorName)}_${hh}-${mm}-${ss}.wav`;
+      const fileName = `${cleanName(recordingProfile.characterName)}_${cleanName(recordingProfile.voiceActorName)}_${hh}${mm}${ss}.WAV`;
 
       console.log("[SaveTake] Saving with profile:", {
         character: recordingProfile.characterName,
@@ -1021,22 +1012,17 @@ export default function RecordingRoom() {
 
       const formData = new FormData();
       formData.append("audio", blob, fileName);
-      formData.append(
-        "metadata",
-        JSON.stringify({
-          characterId: recordingProfile.characterId,
-          voiceActorId: recordingProfile.voiceActorId,
-          voiceActorName: recordingProfile.voiceActorName,
-          characterName: recordingProfile.characterName,
-          lineIndex: currentLine,
-          durationSeconds,
-          qualityScore: qualityMetrics?.score || 0,
-        })
-      );
+      formData.append("characterId", recordingProfile.characterId);
+      formData.append("voiceActorId", recordingProfile.voiceActorId);
+      formData.append("voiceActorName", recordingProfile.voiceActorName);
+      formData.append("characterName", recordingProfile.characterName);
+      formData.append("lineIndex", String(currentLine));
+      formData.append("durationSeconds", String(durationSeconds));
+      formData.append("qualityScore", String(qualityMetrics?.score || 0));
 
       const response = await fetch(`/api/sessions/${sessionId}/takes`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 
@@ -1232,7 +1218,7 @@ export default function RecordingRoom() {
           sessionId={sessionId}
           productionId={session.productionId}
           onSave={handleSaveProfile}
-          onClose={recordingProfile ? () => setShowProfilePanel(false) : undefined}
+          onClose={() => setShowProfilePanel(false)}
           existingProfile={recordingProfile}
         />
       )}
