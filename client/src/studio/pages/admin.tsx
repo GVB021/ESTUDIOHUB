@@ -112,7 +112,7 @@ function OverviewSection() {
         <h2 className="text-xl font-semibold mb-4">Visao Geral do Sistema</h2>
         <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
           <StatCard label="Usuarios" value={isLoading ? "—" : stats?.users ?? 0} icon={Users} color="text-primary" />
-          <StatCard label="Pendentes" value={isLoading ? "—" : stats?.pendingUsers ?? 0} icon={AlertCircle} color="text-amber-400" />
+          <StatCard label="Pendentes" value={isLoading ? "—" : stats?.pendingUsers ?? 0} icon={AlertCircle} color="text-blue-400" />
           <StatCard label="Estudios" value={isLoading ? "—" : stats?.studios ?? 0} icon={Building2} color="text-violet-400" />
           <StatCard label="Producoes" value={isLoading ? "—" : stats?.productions ?? 0} icon={Film} color="text-emerald-400" />
           <StatCard label="Sessoes" value={isLoading ? "—" : stats?.sessions ?? 0} icon={Calendar} color="text-primary" />
@@ -199,7 +199,7 @@ function PendingUsersSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-xl font-semibold flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-amber-400" />
+          <AlertCircle className="h-5 w-5 text-blue-400" />
           Usuarios Pendentes
           {pendingUsers.length > 0 && (
             <Badge variant="destructive" data-testid="badge-pending-count">{pendingUsers.length}</Badge>
@@ -1258,7 +1258,7 @@ function TakesSection() {
                     <td className="p-3 font-mono text-xs">{take.id.slice(0, 8)}…</td>
                     <td className="p-3">
                       {take.qualityScore !== null ? (
-                        <span className={`font-medium ${take.qualityScore >= 80 ? "text-emerald-400" : take.qualityScore >= 50 ? "text-amber-400" : "text-red-400"}`}>
+                        <span className={`font-medium ${take.qualityScore >= 80 ? "text-emerald-400" : take.qualityScore >= 50 ? "text-blue-400" : "text-red-400"}`}>
                           {Math.round(take.qualityScore)}
                         </span>
                       ) : "—"}
@@ -1483,7 +1483,7 @@ function IntegrationsSection() {
             {storageStatus?.supabaseOk ? (
               <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
             ) : (
-              <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
+              <AlertCircle className="h-5 w-5 text-blue-400 shrink-0" />
             )}
             <div className="min-w-0">
               <p className="text-sm font-medium">
@@ -1650,7 +1650,7 @@ export default function Admin() {
           {pendingCount > 0 && (
             <button
               onClick={() => setSection("pending")}
-              className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-amber-500/12 text-amber-400 text-xs font-medium border border-amber-500/25"
+              className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-blue-500/12 text-blue-400 text-xs font-medium border border-blue-500/25"
               data-testid="button-quick-pending"
             >
               <AlertCircle className="h-3.5 w-3.5" />

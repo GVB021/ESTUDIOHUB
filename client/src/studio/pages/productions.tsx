@@ -497,7 +497,7 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
               )}
               {tab === "script" && scriptDirty && (
-                <span className="ml-1.5 w-2 h-2 bg-amber-500 rounded-full inline-block" />
+                <span className="ml-1.5 w-2 h-2 bg-blue-500 rounded-full inline-block" />
               )}
             </button>
           ))}
@@ -570,7 +570,7 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
                     {scriptLines.length} linha{scriptLines.length !== 1 ? "s" : ""}
                   </span>
                   {scriptDirty && (
-                    <span className="text-xs text-amber-400 bg-amber-500/12 px-2 py-0.5 rounded-full border border-amber-500/25">
+                    <span className="text-xs text-blue-400 bg-blue-500/12 px-2 py-0.5 rounded-full border border-blue-500/25">
                       Nao salvo
                     </span>
                   )}
