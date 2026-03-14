@@ -63,18 +63,17 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
   const [title, setTitle] = useState("");
   const [prodId, setProdId] = useState(filterProductionId || "");
   const [dateStr, setDateStr] = useState("");
-  const [storageProvider, setStorageProvider] = useState<"supabase" | "local">("supabase");
+  const storageProvider: "supabase" = "supabase";
   const [takesPath, setTakesPath] = useState("");
 
   useEffect(() => {
     if (!storageOptions) return;
-    setStorageProvider(storageOptions.defaultProvider === "local" ? "local" : "supabase");
-    setTakesPath(String(storageOptions.defaultPath || storageOptions.paths?.[0] || "takes"));
+    setTakesPath(String(storageOptions.defaultPath || storageOptions.paths?.[0] || "uploads"));
   }, [storageOptions]);
 
   const handleCreate = async () => {
     if (!title || !prodId || !dateStr) return;
-    if (storageProvider === "supabase" && storageOptions && !storageOptions.supabaseOk) {
+    if (storageOptions && !storageOptions.supabaseOk) {
       toast({ title: "Supabase indisponivel", description: storageOptions.supabaseReason || "Verifique conexao", variant: "destructive" });
       return;
     }
@@ -84,7 +83,7 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
       scheduledAt: new Date(dateStr).toISOString(),
       status: "scheduled",
       durationMinutes: 60,
-      storageProvider,
+      storageProvider: "supabase",
       takesPath,
     });
     setIsOpen(false);
@@ -156,16 +155,15 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                       />
                     </FieldGroup>
                     <FieldGroup label="Armazenamento dos Takes">
-                      <Select value={storageProvider} onValueChange={(v) => setStorageProvider(v as any)}>
-                        <SelectTrigger data-testid="select-storage-provider">
+                      <Select value={storageProvider} onValueChange={() => {}}>
+                        <SelectTrigger disabled className="disabled:opacity-70" data-testid="select-storage-provider">
                           <SelectValue placeholder="Selecionar..." />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="supabase">Supabase</SelectItem>
-                          <SelectItem value="local">Local</SelectItem>
                         </SelectContent>
                       </Select>
-                      {storageProvider === "supabase" && storageOptions && (
+                      {storageOptions && (
                         <p className="text-xs text-muted-foreground mt-2">
                           {storageOptions.supabaseOk ? "Conexao OK" : `Conexao falhou: ${storageOptions.supabaseReason || "—"}`}
                         </p>
@@ -177,7 +175,7 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                           <SelectValue placeholder="Selecionar..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {(storageOptions?.paths || ["takes"]).map((p: string) => (
+                          {(storageOptions?.paths || ["uploads"]).map((p: string) => (
                             <SelectItem key={p} value={p}>{p}</SelectItem>
                           ))}
                         </SelectContent>
@@ -187,7 +185,7 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                   <DialogFooter>
                     <Button
                       onClick={handleCreate}
-                      disabled={!title || !prodId || !dateStr || !takesPath || createSession.isPending || (storageProvider === "supabase" && storageOptions && !storageOptions.supabaseOk)}
+                      disabled={!title || !prodId || !dateStr || !takesPath || createSession.isPending || (storageOptions && !storageOptions.supabaseOk)}
                       className="press-effect"
                       data-testid="button-schedule-session"
                     >

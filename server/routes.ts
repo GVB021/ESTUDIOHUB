@@ -576,12 +576,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const userId = (req.user as any)?.id;
       const settings = await storage.getAllSettings();
-      const storageProvider = String(req.body.storageProvider || settings.DEFAULT_STORAGE_PROVIDER || "supabase");
+      const storageProvider = "supabase";
       const takesPath = String(req.body.takesPath || settings.DEFAULT_TAKES_PATH || "uploads");
-
-      if (storageProvider !== "supabase" && storageProvider !== "local") {
-        return res.status(400).json({ message: "Storage invalido" });
-      }
 
       const allowedPaths: string[] = (() => {
         try {
@@ -598,11 +594,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Caminho de salvamento invalido" });
       }
 
-      if (storageProvider === "supabase") {
-        const status = await checkSupabaseConnection(false);
-        if (!isSupabaseConfigured() || !status.ok) {
-          return res.status(400).json({ message: "Supabase indisponivel" });
-        }
+      const status = await checkSupabaseConnection(false);
+      if (!isSupabaseConfigured() || !status.ok) {
+        return res.status(400).json({ message: "Supabase indisponivel" });
       }
 
       const input = insertSessionSchema.parse({
@@ -1369,7 +1363,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch {}
     if (!paths.length) paths = ["uploads"];
 
-    const defaultProvider = settings.DEFAULT_STORAGE_PROVIDER === "local" ? "local" : "supabase";
+    const defaultProvider = "supabase";
     const defaultPath = String(settings.DEFAULT_TAKES_PATH || paths[0] || "uploads");
 
     res.status(200).json({
