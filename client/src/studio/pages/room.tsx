@@ -58,7 +58,7 @@ import { encodeWav, wavToBlob, getDurationSeconds } from "@studio/lib/audio/wavE
 import { analyzeTakeQuality, type QualityMetrics } from "@studio/lib/audio/qualityAnalysis";
 
 function DailyMeetPanel({ sessionId }: { sessionId: string }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
   const [dailyUrl, setDailyUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +66,8 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    if (!isOpen) return () => { cancelled = true; };
+
     (async () => {
       try {
         setLoading(true);
@@ -84,70 +86,90 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [sessionId, isOpen]);
 
-  const panelHeight = isOpen ? (isCompact ? "200px" : "400px") : "0px";
+  const panelHeight = isCompact ? "200px" : "min(420px, calc(100vh - 180px))";
 
   return (
-    <div className="mt-4 rounded-xl overflow-hidden glass-panel" data-testid="panel-daily">
-      <div className={cn("flex items-center justify-between px-3 py-2 transition-colors", isOpen ? "border-b border-border/50 bg-muted/20" : "bg-transparent")}>
-        <span className="text-[11px] font-medium flex items-center gap-1.5 text-muted-foreground">
-          <Mic className="w-3 h-3 text-emerald-500" /> Chat de Voz
-        </span>
-        <div className="flex items-center gap-2">
-          {isOpen && !isCompact && (
-            <button
-              onClick={() => setIsCompact(true)}
-              className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-              data-testid="button-compact-daily"
-            >
-              <Minimize2 className="w-3 h-3" /> Reduzir
-            </button>
-          )}
-          {isOpen && isCompact && (
-            <button
-              onClick={() => setIsCompact(false)}
-              className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-              data-testid="button-expand-daily"
-            >
-              <Maximize2 className="w-3 h-3" /> Expandir
-            </button>
-          )}
-          <button
-            onClick={() => setIsOpen(v => !v)}
-            className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-            data-testid="button-toggle-daily"
-          >
-            {isOpen ? <><X className="w-3 h-3" /> Minimizar</> : <><Mic className="w-3 h-3" /> Abrir</>}
-          </button>
+    <div className="fixed bottom-5 right-5 z-[80] flex flex-col items-end gap-3" data-testid="panel-daily">
+      {isOpen && (
+        <div
+          className="rounded-2xl overflow-hidden glass-panel shadow-2xl"
+          style={{ width: "min(380px, calc(100vw - 32px))" }}
+        >
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-muted/20">
+            <span className="text-[11px] font-medium flex items-center gap-1.5 text-muted-foreground">
+              <Mic className="w-3 h-3 text-emerald-500" /> Chat de Voz
+            </span>
+            <div className="flex items-center gap-2">
+              {!isCompact && (
+                <button
+                  onClick={() => setIsCompact(true)}
+                  className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                  data-testid="button-compact-daily"
+                >
+                  <Minimize2 className="w-3 h-3" /> Reduzir
+                </button>
+              )}
+              {isCompact && (
+                <button
+                  onClick={() => setIsCompact(false)}
+                  className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                  data-testid="button-expand-daily"
+                >
+                  <Maximize2 className="w-3 h-3" /> Expandir
+                </button>
+              )}
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                data-testid="button-toggle-daily"
+              >
+                <X className="w-3 h-3" /> Fechar
+              </button>
+            </div>
+          </div>
+          <div style={{ height: panelHeight, overflow: "hidden" }}>
+            {loading && (
+              <div className="flex items-center justify-center text-muted-foreground" style={{ height: panelHeight }}>
+                <span className="text-xs">Criando sala de voz...</span>
+              </div>
+            )}
+            {error && (
+              <div className="flex items-center justify-center text-destructive" style={{ height: panelHeight }}>
+                <span className="text-xs">{error}</span>
+              </div>
+            )}
+            {dailyUrl && !loading && (
+              <iframe
+                src={dailyUrl}
+                allow="camera; microphone; autoplay; display-capture"
+                className="w-full"
+                style={{ height: panelHeight, border: "none" }}
+                data-testid="iframe-daily-meet"
+                title="Daily.co Voice Chat"
+              />
+            )}
+          </div>
         </div>
-      </div>
-      <div style={{
-        height: panelHeight,
-        overflow: "hidden",
-        transition: "height 0.3s ease",
-      }}>
-        {loading && (
-          <div className="flex items-center justify-center text-muted-foreground" style={{ height: isCompact ? "200px" : "400px" }}>
-            <span className="text-xs">Criando sala de voz...</span>
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center justify-center text-destructive" style={{ height: isCompact ? "200px" : "400px" }}>
-            <span className="text-xs">{error}</span>
-          </div>
-        )}
-        {dailyUrl && !loading && (
-          <iframe
-            src={dailyUrl}
-            allow="camera; microphone; autoplay; display-capture; fullscreen"
-            className="w-full"
-            style={{ height: isCompact ? "200px" : "400px", border: "none", borderRadius: "0 0 12px 12px" }}
-            data-testid="iframe-daily-meet"
-            title="Daily.co Voice Chat"
-          />
-        )}
-      </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setIsOpen((v) => !v)}
+        className="h-14 w-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-[0.98]"
+        style={{
+          background: isOpen ? "rgba(255,255,255,0.10)" : "hsl(var(--primary))",
+          color: isOpen ? "rgba(255,255,255,0.80)" : "hsl(var(--primary-foreground))",
+          border: "1px solid rgba(255,255,255,0.12)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+        }}
+        aria-label={isOpen ? "Fechar chat de voz" : "Abrir chat de voz"}
+        data-testid="button-floating-voice-chat"
+      >
+        {isOpen ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+      </button>
     </div>
   );
 }
@@ -374,7 +396,7 @@ function DeviceSettingsPanel({
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="rounded-2xl w-[480px] overflow-hidden glass-panel shadow-2xl">
+      <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[480px] overflow-hidden glass-panel shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
           <span className="text-sm font-semibold text-foreground">Configuracoes de Dispositivo</span>
           <button
@@ -607,7 +629,7 @@ function RecordingProfilePanel({
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="rounded-2xl w-[440px] overflow-hidden glass-panel shadow-2xl">
+      <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[440px] overflow-hidden glass-panel shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-primary" />
@@ -780,7 +802,7 @@ export default function RecordingRoom() {
         .sort((a, b) => a.start - b.start);
       return sorted.map((line, i) => ({
         ...line,
-        end: sorted[i + 1]?.start ?? line.start + 10,
+        end: Math.max(sorted[i + 1]?.start ?? (line.start + 10), line.start + 0.001),
       }));
     } catch (e) {
       console.error("[Room] Failed to parse scriptJson:", e);
@@ -896,11 +918,42 @@ export default function RecordingRoom() {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const scriptViewportRef = useRef<HTMLDivElement | null>(null);
   const telepromptRafRef = useRef<number | null>(null);
+  const telepromptLastTsRef = useRef<number | null>(null);
+  const telepromptScriptRef = useRef<ScriptLine[]>([]);
+  const telepromptVideoTimeRef = useRef(0);
+  const telepromptCurrentLineRef = useRef(0);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const isRemoteAction = useRef(false);
   const wsReconnectTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const doc = document as any;
+    const exit = () => {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      if (doc.webkitFullscreenElement && typeof doc.webkitExitFullscreen === "function") {
+        try {
+          doc.webkitExitFullscreen();
+        } catch {}
+      }
+    };
+
+    const onChange = () => {
+      if (document.fullscreenElement || doc.webkitFullscreenElement) {
+        exit();
+      }
+    };
+
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange as any);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange as any);
+    };
+  }, []);
 
   const [globalControlEnabled, setGlobalControlEnabled] = useState(false);
   const [controlPermissions, setControlPermissions] = useState<Set<string>>(() => {
@@ -1216,55 +1269,96 @@ export default function RecordingRoom() {
     };
   }, [scriptLines, currentLine, isLooping, preRoll, postRoll]);
 
-  const getTelepromptTargetScroll = useCallback(() => {
-    const viewport = scriptViewportRef.current;
-    const activeEl = lineRefs.current[currentLine];
-    if (!viewport || !activeEl) return null;
+  useEffect(() => {
+    telepromptScriptRef.current = scriptLines;
+  }, [scriptLines]);
 
-    const currentScript = scriptLines[currentLine];
-    const currentStart = currentScript?.start ?? 0;
-    const currentEnd = currentScript?.end ?? (currentStart + 1);
-    const lineDuration = Math.max(0.25, currentEnd - currentStart);
-    const lineProgress = Math.min(1, Math.max(0, (videoTime - currentStart) / lineDuration));
+  useEffect(() => {
+    telepromptVideoTimeRef.current = videoTime;
+  }, [videoTime]);
 
-    const nextIdx = Math.min(currentLine + 1, scriptLines.length - 1);
-    const nextEl = lineRefs.current[nextIdx];
-    const activeTop = activeEl.offsetTop;
-    const nextTop = nextEl ? nextEl.offsetTop : activeTop;
-    const interpolatedTop = activeTop + ((nextTop - activeTop) * lineProgress);
-
-    const focusY = viewport.clientHeight * 0.34;
-    const rawTarget = interpolatedTop - focusY;
-    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-
-    return Math.min(maxScroll, Math.max(0, rawTarget));
-  }, [currentLine, scriptLines, videoTime]);
+  useEffect(() => {
+    telepromptCurrentLineRef.current = currentLine;
+  }, [currentLine]);
 
   useEffect(() => {
     const viewport = scriptViewportRef.current;
     if (!viewport) return;
-
-    const target = getTelepromptTargetScroll();
-    if (target === null) return;
 
     if (telepromptRafRef.current) {
       cancelAnimationFrame(telepromptRafRef.current);
       telepromptRafRef.current = null;
     }
 
-    const step = () => {
-      const nextTarget = getTelepromptTargetScroll();
-      if (nextTarget === null) return;
+    telepromptLastTsRef.current = null;
 
-      const current = viewport.scrollTop;
-      const diff = nextTarget - current;
-      if (Math.abs(diff) < 0.35) {
-        viewport.scrollTop = nextTarget;
+    const ease = (t: number) => {
+      const x = Math.max(0, Math.min(1, t));
+      return x * x * x * (x * (x * 6 - 15) + 10);
+    };
+
+    const computeTarget = () => {
+      const vp = scriptViewportRef.current;
+      if (!vp) return null;
+
+      const lines = telepromptScriptRef.current;
+      if (!lines.length) return null;
+
+      const t = telepromptVideoTimeRef.current;
+      let idx = telepromptCurrentLineRef.current;
+
+      let lo = 0;
+      let hi = lines.length - 1;
+      let ans = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if ((lines[mid]?.start ?? 0) <= t + 0.001) {
+          ans = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      idx = Math.max(0, Math.min(lines.length - 1, ans));
+
+      const nextIdx = Math.min(idx + 1, lines.length - 1);
+      const el0 = lineRefs.current[idx] || lineRefs.current[telepromptCurrentLineRef.current] || null;
+      if (!el0) return null;
+
+      const el1 = lineRefs.current[nextIdx] || el0;
+      const y0 = el0.offsetTop;
+      const y1 = el1.offsetTop;
+      const t0 = lines[idx]?.start ?? 0;
+      const t1 = lines[nextIdx]?.start ?? (t0 + 0.5);
+      const denom = Math.max(0.5, t1 - t0);
+      const p = ease((t - t0) / denom);
+      const y = y0 + (y1 - y0) * p;
+
+      const focusY = (vp.clientHeight / 2) - (el0.offsetHeight / 2);
+      const rawTarget = y - focusY;
+      const maxScroll = Math.max(0, vp.scrollHeight - vp.clientHeight);
+      return Math.min(maxScroll, Math.max(0, rawTarget));
+    };
+
+    const step = (ts: number) => {
+      const vp = scriptViewportRef.current;
+      if (!vp) return;
+
+      const target = computeTarget();
+      if (target === null) {
+        telepromptRafRef.current = requestAnimationFrame(step);
         return;
       }
 
-      const factor = isPlaying ? 0.11 : 0.2;
-      viewport.scrollTop = current + (diff * factor);
+      const last = telepromptLastTsRef.current;
+      const dt = last ? Math.max(0.001, Math.min(0.05, (ts - last) / 1000)) : 1 / 60;
+      telepromptLastTsRef.current = ts;
+
+      const tau = isPlaying ? 0.22 : 0.14;
+      const alpha = 1 - Math.exp(-dt / tau);
+      const current = vp.scrollTop;
+      vp.scrollTop = current + (target - current) * alpha;
+
       telepromptRafRef.current = requestAnimationFrame(step);
     };
 
@@ -1275,8 +1369,9 @@ export default function RecordingRoom() {
         cancelAnimationFrame(telepromptRafRef.current);
         telepromptRafRef.current = null;
       }
+      telepromptLastTsRef.current = null;
     };
-  }, [getTelepromptTargetScroll, isPlaying]);
+  }, [isPlaying]);
 
   useEffect(() => {
     if (!listeningFor) return;
@@ -1706,7 +1801,7 @@ export default function RecordingRoom() {
 
       {isCustomizing && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="rounded-2xl w-[420px] overflow-hidden glass-panel shadow-2xl">
+          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[420px] overflow-hidden glass-panel shadow-2xl">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
               <span className="text-sm font-semibold text-foreground">Atalhos de Teclado</span>
               <button
@@ -1795,7 +1890,7 @@ export default function RecordingRoom() {
 
       {takesPopupOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-          <div className="rounded-2xl w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
             <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
               <span className="text-sm font-semibold" style={{ color: "hsl(210 40% 96%)" }}>Takes da Sessao</span>
               <button
@@ -2065,9 +2160,9 @@ export default function RecordingRoom() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex flex-col" style={{ width: "56%", borderRight: "1px solid rgba(255,255,255,0.08)" }}>
-          <div className="flex-1 relative overflow-hidden" style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)", margin: "4px 4px 0 4px", borderRadius: "12px" }}>
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr] overflow-hidden">
+        <div className="flex flex-col min-h-0 lg:border-r lg:border-white/10">
+          <div className="flex-1 min-h-[240px] relative overflow-hidden" style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)", margin: "4px 4px 0 4px", borderRadius: "12px" }}>
             {production?.videoUrl ? (
               <video
                 ref={videoRef}
@@ -2076,6 +2171,10 @@ export default function RecordingRoom() {
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
                 muted={isMuted}
+                playsInline
+                disablePictureInPicture
+                controls={false}
+                controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3" style={{ color: "rgba(255,255,255,0.35)" }}>
@@ -2144,8 +2243,8 @@ export default function RecordingRoom() {
             </div>
           )}
 
-          <div className="h-24 shrink-0 px-5 flex items-center justify-between" style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-            <div className="w-56 shrink-0 flex flex-col justify-center gap-1 h-full py-3">
+          <div className="shrink-0 px-4 sm:px-5 py-3 sm:py-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0" style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="w-full sm:w-56 shrink-0 flex flex-col justify-center gap-1 py-0 sm:py-3">
               <div className="flex items-center justify-between text-[10px] mb-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
                 <span className="uppercase tracking-wider">
                   {recordingStatus === "recording" ? "Ao Vivo" :
@@ -2182,7 +2281,7 @@ export default function RecordingRoom() {
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-2">
               <button
                 onClick={() => seek(-2)}
                 className="w-9 h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
@@ -2305,7 +2404,7 @@ export default function RecordingRoom() {
               </button>
             </div>
 
-            <div className="w-44 shrink-0 flex flex-col items-end gap-1.5">
+            <div className="w-full sm:w-44 shrink-0 flex flex-col items-start sm:items-end gap-1.5">
               {isLooping && (
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
@@ -2355,7 +2454,7 @@ export default function RecordingRoom() {
           </div>
         </div>
 
-        <div className="flex flex-col" style={{ width: "44%", background: "rgba(255,255,255,0.02)" }}>
+        <div className="flex flex-col min-h-0 bg-white/[0.02]">
           <div className="h-11 shrink-0 px-5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)" }}>
             <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.40)" }}>
               Roteiro
@@ -2519,9 +2618,10 @@ export default function RecordingRoom() {
             })}
           </div>
 
-          <DailyMeetPanel sessionId={sessionId} />
         </div>
       </div>
+
+      <DailyMeetPanel sessionId={sessionId} />
     </div>
   );
 }

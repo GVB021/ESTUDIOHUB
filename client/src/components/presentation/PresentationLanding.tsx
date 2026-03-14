@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { en, pt } from "@/lib/i18n";
 import { MeshGradient } from "@/components/landing/MeshGradient";
 import { AppHeader } from "@/components/nav/AppHeader";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function PresentationLanding() {
   const [lang, setLang] = useState<"en" | "pt">("en");
   const t = lang === "en" ? en : pt;
   const containerRef = useRef<HTMLDivElement>(null);
+  const { user, isLoading } = useAuth();
+  const isAuthenticated = !!user;
 
   return (
     <div className="bg-background text-foreground font-sans overflow-x-hidden">
@@ -20,7 +23,7 @@ export default function PresentationLanding() {
       <Slide1 t={t} />
 
       {/* Slide 2: HUB DUB */}
-      <Slide2 t={t} />
+      <Slide2 t={t} isAuthenticated={isAuthenticated} isAuthLoading={isLoading} />
 
       {/* Slide 3: HUBSCHOOL */}
       <Slide3 t={t} />
@@ -170,7 +173,7 @@ function Slide1({ t }: { t: any }) {
   );
 }
 
-function Slide2({ t }: { t: any }) {
+function Slide2({ t, isAuthenticated, isAuthLoading }: { t: any; isAuthenticated: boolean; isAuthLoading: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
     target: ref,
@@ -206,7 +209,7 @@ function Slide2({ t }: { t: any }) {
              </p>
              <Link href="/hub-dub">
                <Button variant="outline" className="rounded-full px-8 h-12 bg-white/60 dark:bg-white/10 border-black/10 dark:border-white/15 hover:bg-white/70 dark:hover:bg-white/15 vhub-hover-lift">
-                 Acessar Studio
+                 {isAuthLoading ? "Carregando..." : (isAuthenticated ? "Continue Session" : "Sign In")}
                </Button>
              </Link>
           </motion.div>

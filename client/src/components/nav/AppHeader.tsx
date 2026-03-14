@@ -28,7 +28,7 @@ export function AppHeader({
         </div>
 
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-          <Link href="/hub-dub/login" className="hover:text-foreground transition-colors">
+          <Link href="/hub-dub" className="hover:text-foreground transition-colors">
             HubDub
           </Link>
           <Link href="/hubschool" className="hover:text-foreground transition-colors">

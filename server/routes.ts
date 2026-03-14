@@ -22,6 +22,7 @@ import { randomUUID } from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { checkSupabaseConnection, configureSupabase, isSupabaseConfigured, uploadToSupabaseStorage } from "./lib/supabase";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -540,6 +541,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/studios/:studioId/sessions", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
+      const settings = await storage.getAllSettings();
+      const storageProvider = String(req.body.storageProvider || settings.DEFAULT_STORAGE_PROVIDER || "supabase");
+      const takesPath = String(req.body.takesPath || settings.DEFAULT_TAKES_PATH || "takes");
+
+      if (storageProvider !== "supabase" && storageProvider !== "local") {
+        return res.status(400).json({ message: "Storage invalido" });
+      }
+
+      const allowedPaths: string[] = (() => {
+        try {
+          const raw = settings.TAKES_SAVE_PATHS || "[]";
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return parsed.map((v) => String(v)).filter(Boolean);
+          return [];
+        } catch {
+          return [];
+        }
+      })();
+
+      if (allowedPaths.length > 0 && !allowedPaths.includes(takesPath)) {
+        return res.status(400).json({ message: "Caminho de salvamento invalido" });
+      }
+
+      if (storageProvider === "supabase") {
+        const status = await checkSupabaseConnection(false);
+        if (!isSupabaseConfigured() || !status.ok) {
+          return res.status(400).json({ message: "Supabase indisponivel" });
+        }
+      }
+
       const input = insertSessionSchema.parse({
         title: req.body.title,
         productionId: req.body.productionId,
@@ -547,6 +578,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         scheduledAt: new Date(req.body.scheduledAt),
         durationMinutes: req.body.durationMinutes ?? 60,
         status: req.body.status ?? "scheduled",
+        storageProvider,
+        takesPath,
         createdBy: userId,
       });
       const session = await storage.createSession(input);
@@ -621,15 +654,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const sessionCheck = await verifySessionAccess(req, res, sessionId);
       if (!sessionCheck) return;
 
+      const settings = await storage.getAllSettings();
+      const storageProvider = (sessionCheck as any).storageProvider || settings.DEFAULT_STORAGE_PROVIDER || "supabase";
+      const takesPath = (sessionCheck as any).takesPath || settings.DEFAULT_TAKES_PATH || "takes";
+      const supabaseBucket = settings.SUPABASE_BUCKET || "takes";
+
       let audioUrl = req.body.audioUrl || "";
+      let contentType = "audio/wav";
 
       if (req.file) {
         const originalName = req.file.originalname || "";
         const safeName = originalName.replace(/[^a-zA-Z0-9_.\-]/g, "");
-        const filename = safeName || `take_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`;
+        const ext = path.extname(safeName || "") || ".wav";
+        const filename = `take_${sessionId}_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
         const filePath = path.join(uploadsDir, filename);
         fs.writeFileSync(filePath, req.file.buffer);
         audioUrl = `/uploads/${filename}`;
+        contentType = req.file.mimetype || contentType;
       }
 
       if (!audioUrl) {
@@ -645,6 +686,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         durationSeconds: Number(durationSeconds) || 0,
         qualityScore: qualityScore ? Number(qualityScore) : null,
       });
+
+      if (req.file && storageProvider === "supabase" && isSupabaseConfigured()) {
+        try {
+          const status = await checkSupabaseConnection(false);
+          if (!status.ok) throw new Error(status.reason || "Supabase indisponivel");
+          const objectPath = [
+            String(takesPath || "takes"),
+            `studio_${String((sessionCheck as any).studioId || "")}`,
+            `session_${sessionId}`,
+            `take_${take.id}.wav`,
+          ].join("/");
+          const publicUrl = await uploadToSupabaseStorage({
+            bucket: supabaseBucket,
+            path: objectPath,
+            buffer: req.file.buffer,
+            contentType,
+          });
+          await storage.updateTakeAudioUrl(take.id, publicUrl);
+          (take as any).audioUrl = publicUrl;
+        } catch (e: any) {
+          logger.error("[Take Upload] Supabase upload failed", { message: e?.message });
+        }
+      }
 
       res.status(201).json(take);
     } catch (err: any) {
@@ -722,6 +786,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (!roles.includes("studio_admin")) {
           return res.status(403).json({ message: "Acesso negado" });
         }
+      }
+      if (/^https?:\/\//i.test(take.audioUrl)) {
+        return res.redirect(take.audioUrl);
       }
       const filePath = safeAudioPath(take.audioUrl);
       if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ message: "Arquivo nao encontrado" });
@@ -1192,6 +1259,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // PLATFORM SETTINGS
   app.get("/api/admin/settings", requireAuth, requireAdmin, async (req, res) => {
     const settings = await storage.getAllSettings();
+    delete (settings as any).SUPABASE_SERVICE_ROLE_KEY;
     res.status(200).json(settings);
   });
 
@@ -1199,11 +1267,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { key, value } = z.object({ key: z.string(), value: z.string() }).parse(req.body);
       await storage.upsertSetting(key, value);
+      if (key === "SUPABASE_URL") configureSupabase({ url: value });
+      if (key === "SUPABASE_SERVICE_ROLE_KEY") configureSupabase({ serviceRoleKey: value });
       await logAdminAction(req, "UPDATE_SETTING", `Atualizou configuracao ${key}`);
       res.status(200).json({ ok: true });
     } catch (err) {
       res.status(400).json({ message: "Dados invalidos" });
     }
+  });
+
+  app.get("/api/admin/storage/status", requireAuth, requireAdmin, async (_req, res) => {
+    const status = await checkSupabaseConnection(true);
+    const settings = await storage.getAllSettings();
+    res.status(200).json({
+      supabaseConfigured: isSupabaseConfigured(),
+      supabaseOk: status.ok,
+      supabaseReason: status.reason || null,
+      supabaseBucket: settings.SUPABASE_BUCKET || "takes",
+    });
+  });
+
+  app.get("/api/storage/options", requireAuth, async (_req, res) => {
+    const settings = await storage.getAllSettings();
+    const status = await checkSupabaseConnection(false);
+    let paths: string[] = [];
+    try {
+      const raw = settings.TAKES_SAVE_PATHS || "[]";
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) paths = parsed.map((v) => String(v)).filter(Boolean);
+    } catch {}
+    if (!paths.length) paths = ["takes"];
+
+    const defaultProvider = settings.DEFAULT_STORAGE_PROVIDER === "local" ? "local" : "supabase";
+    const defaultPath = String(settings.DEFAULT_TAKES_PATH || paths[0] || "takes");
+
+    res.status(200).json({
+      defaultProvider,
+      defaultPath,
+      paths,
+      supabaseConfigured: isSupabaseConfigured(),
+      supabaseOk: status.ok,
+      supabaseReason: status.reason || null,
+      supabaseBucket: settings.SUPABASE_BUCKET || "takes",
+    });
   });
 
   app.post("/api/create-room", requireAuth, async (req, res) => {

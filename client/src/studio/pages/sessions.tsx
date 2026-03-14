@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useEffect, useState, memo } from "react";
 import { useSessions, useCreateSession } from "@studio/hooks/use-sessions";
 import { useProductions } from "@studio/hooks/use-productions";
 import { Button } from "@studio/components/ui/button";
@@ -18,7 +18,7 @@ import { format } from "date-fns";
 import { useToast } from "@studio/hooks/use-toast";
 import { useStudioRole } from "@studio/hooks/use-studio-role";
 import { useAuth } from "@studio/hooks/use-auth";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authFetch } from "@studio/lib/auth-fetch";
 import {
   PageSection, PageHeader, EmptyState, StatusBadge, FieldGroup, GridSkeleton
@@ -36,6 +36,10 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isStudioAdmin = hasMinRole("studio_admin");
+  const { data: storageOptions } = useQuery({
+    queryKey: ["/api/storage/options"],
+    queryFn: () => authFetch("/api/storage/options") as Promise<any>,
+  });
 
   const search = useSearch();
   const searchParams = new URLSearchParams(search || "");
@@ -59,15 +63,29 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
   const [title, setTitle] = useState("");
   const [prodId, setProdId] = useState(filterProductionId || "");
   const [dateStr, setDateStr] = useState("");
+  const [storageProvider, setStorageProvider] = useState<"supabase" | "local">("supabase");
+  const [takesPath, setTakesPath] = useState("");
+
+  useEffect(() => {
+    if (!storageOptions) return;
+    setStorageProvider(storageOptions.defaultProvider === "local" ? "local" : "supabase");
+    setTakesPath(String(storageOptions.defaultPath || storageOptions.paths?.[0] || "takes"));
+  }, [storageOptions]);
 
   const handleCreate = async () => {
     if (!title || !prodId || !dateStr) return;
+    if (storageProvider === "supabase" && storageOptions && !storageOptions.supabaseOk) {
+      toast({ title: "Supabase indisponivel", description: storageOptions.supabaseReason || "Verifique conexao", variant: "destructive" });
+      return;
+    }
     await createSession.mutateAsync({
       title,
       productionId: prodId,
       scheduledAt: new Date(dateStr).toISOString(),
       status: "scheduled",
       durationMinutes: 60,
+      storageProvider,
+      takesPath,
     });
     setIsOpen(false);
     setTitle("");
@@ -137,11 +155,39 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                         data-testid="input-session-date"
                       />
                     </FieldGroup>
+                    <FieldGroup label="Armazenamento dos Takes">
+                      <Select value={storageProvider} onValueChange={(v) => setStorageProvider(v as any)}>
+                        <SelectTrigger data-testid="select-storage-provider">
+                          <SelectValue placeholder="Selecionar..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="supabase">Supabase</SelectItem>
+                          <SelectItem value="local">Local</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {storageProvider === "supabase" && storageOptions && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {storageOptions.supabaseOk ? "Conexao OK" : `Conexao falhou: ${storageOptions.supabaseReason || "—"}`}
+                        </p>
+                      )}
+                    </FieldGroup>
+                    <FieldGroup label="Caminho de Salvamento (Takes)">
+                      <Select value={takesPath} onValueChange={setTakesPath}>
+                        <SelectTrigger data-testid="select-takes-path">
+                          <SelectValue placeholder="Selecionar..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(storageOptions?.paths || ["takes"]).map((p: string) => (
+                            <SelectItem key={p} value={p}>{p}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FieldGroup>
                   </div>
                   <DialogFooter>
                     <Button
                       onClick={handleCreate}
-                      disabled={!title || !prodId || !dateStr || createSession.isPending}
+                      disabled={!title || !prodId || !dateStr || !takesPath || createSession.isPending || (storageProvider === "supabase" && storageOptions && !storageOptions.supabaseOk)}
                       className="press-effect"
                       data-testid="button-schedule-session"
                     >
