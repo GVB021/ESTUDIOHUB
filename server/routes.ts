@@ -94,11 +94,45 @@ function toNodeReadable(body: any) {
   }
 }
 
-async function fetchAudioResponse(audioUrl: string) {
-  if (isSupabaseConfigured() && parseSupabaseStorageUrl(audioUrl)) {
-    return await downloadFromSupabaseStorageUrl(audioUrl);
+function sendFileWithRange(req: Request, res: Response, filePath: string, contentType = "audio/wav") {
+  const stat = fs.statSync(filePath);
+  const total = stat.size;
+  const range = String(req.headers.range || "");
+  res.setHeader("Accept-Ranges", "bytes");
+
+  if (!range) {
+    res.status(200);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", String(total));
+    fs.createReadStream(filePath).pipe(res);
+    return;
   }
-  const res = await fetch(audioUrl);
+
+  const m = range.match(/bytes=(\d+)-(\d+)?/);
+  if (!m) {
+    res.status(416);
+    res.setHeader("Content-Range", `bytes */${total}`);
+    res.end();
+    return;
+  }
+
+  const start = Math.min(total - 1, Math.max(0, Number(m[1] || 0)));
+  const endRaw = m[2] ? Number(m[2]) : total - 1;
+  const end = Math.min(total - 1, Math.max(start, endRaw));
+  const chunkSize = end - start + 1;
+
+  res.status(206);
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+  res.setHeader("Content-Length", String(chunkSize));
+  fs.createReadStream(filePath, { start, end }).pipe(res);
+}
+
+async function fetchAudioResponse(audioUrl: string, range?: string) {
+  if (isSupabaseConfigured() && parseSupabaseStorageUrl(audioUrl)) {
+    return await downloadFromSupabaseStorageUrl(audioUrl, { range });
+  }
+  const res = await fetch(audioUrl, { headers: range ? { range } : undefined });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status} ${text}`.trim());
@@ -956,15 +990,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const filePath = safeAudioPath(take.audioUrl);
       if (filePath && fs.existsSync(filePath)) {
-        res.setHeader("Content-Type", "audio/wav");
-        fs.createReadStream(filePath).pipe(res);
+        sendFileWithRange(req, res, filePath, "audio/wav");
         return;
       }
 
       if (isHttpUrl(take.audioUrl)) {
-        const upstream = await fetchAudioResponse(take.audioUrl);
+        const range = String(req.headers.range || "");
+        const upstream = await fetchAudioResponse(take.audioUrl, range);
         const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+        res.status(upstream.status);
         res.setHeader("Content-Type", contentType);
+        const contentLength = upstream.headers.get("content-length");
+        if (contentLength) res.setHeader("Content-Length", contentLength);
+        const acceptRanges = upstream.headers.get("accept-ranges");
+        if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+        const contentRange = upstream.headers.get("content-range");
+        if (contentRange) res.setHeader("Content-Range", contentRange);
         const stream = toNodeReadable(upstream.body);
         if (!stream) return res.status(500).json({ message: "Falha ao obter stream" });
         stream.pipe(res);

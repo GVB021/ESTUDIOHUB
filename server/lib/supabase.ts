@@ -236,7 +236,10 @@ export function parseSupabaseStorageUrl(input: string): { bucket: string; path: 
   }
 }
 
-export async function downloadFromSupabaseStorage(params: { bucket: string; path: string }) {
+export async function downloadFromSupabaseStorage(
+  params: { bucket: string; path: string },
+  opts?: { range?: string },
+) {
   requireSupabase();
   const bucket = String(params.bucket || "").trim();
   const objectPath = joinPath(params.path);
@@ -249,9 +252,10 @@ export async function downloadFromSupabaseStorage(params: { bucket: string; path
     .map(encodeURIComponent)
     .join("/")}`;
 
+  const range = String(opts?.range || "").trim();
   const res = await fetchWithRetry(
     url,
-    { method: "GET", headers: supabaseHeaders() },
+    { method: "GET", headers: supabaseHeaders(range ? { range } : undefined) },
     { op: "storage.object.download", attemptHint: `${bucket}/${objectPath}` },
     { retries: 2, baseDelayMs: 250 },
   );
@@ -292,10 +296,10 @@ export async function deleteFromSupabaseStorage(params: { bucket: string; path: 
   return true;
 }
 
-export async function downloadFromSupabaseStorageUrl(audioUrl: string) {
+export async function downloadFromSupabaseStorageUrl(audioUrl: string, opts?: { range?: string }) {
   const parsed = parseSupabaseStorageUrl(audioUrl);
   if (!parsed) {
     throw new Error("Unsupported Supabase URL");
   }
-  return downloadFromSupabaseStorage(parsed);
+  return downloadFromSupabaseStorage(parsed, opts);
 }
