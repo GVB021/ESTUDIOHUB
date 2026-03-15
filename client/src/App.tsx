@@ -35,11 +35,7 @@ const lazyWithRetry = <T extends ComponentType<any>>(importer: () => Promise<{ d
   });
 
 const NotFound = lazyWithRetry(() => import("@/pages/not-found"));
-const Landing = lazyWithRetry(() => import("@/pages/landing"));
-const HubSchool = lazyWithRetry(() => import("@/pages/hubschool"));
-const HubSchoolCourse = lazyWithRetry(() => import("@/pages/hubschool-course"));
-const HubAlign = lazyWithRetry(() => import("@/pages/hub-align"));
-
+const Landing = lazyWithRetry(() => import("@/components/presentation/PresentationLanding"));
 // Studio Pages (imported from the HUBDUB-STUDIO folder)
 const Login = lazyWithRetry(() => import("@studio/pages/login"));
 const StudioSelect = lazyWithRetry(() => import("@studio/pages/studio-select"));
@@ -119,11 +115,7 @@ function Router() {
             <Redirect to="/hub-dub/login" />
           </Route>
 
-          <Route path="/hub-align/:rest*">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-hidden z-50">
-              <HubAlign />
-            </motion.div>
-          </Route>
+
 
           <Route path="/hub-dub/login">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
@@ -245,20 +237,7 @@ function Router() {
             )}
           </Route>
 
-          {/* HubSchool Routes */}
-          <Route path="/hubschool/course/:slug">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
-              <HubSchoolCourse />
-            </motion.div>
-          </Route>
 
-          <Route path="/hubschool">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
-              <HubSchool />
-            </motion.div>
-          </Route>
-
-          <Route component={NotFound} />
         </Switch>
       </AnimatePresence>
     </Suspense>
