@@ -29,23 +29,30 @@ import {
 } from "lucide-react";
 import { useToast } from "@studio/hooks/use-toast";
 import { useAuth } from "@studio/hooks/use-auth";
-import { cn } from "@studio/lib/utils";
 import {
   requestMicrophone,
   releaseMicrophone,
+  setGain,
+  type MicrophoneState,
+  type VoiceCaptureMode,
+} from "@studio/lib/audio/microphoneManager";
+
+export type { MicrophoneState, VoiceCaptureMode };
+import {
   startCapture,
   stopCapture,
-  setGain,
-} from "@studio/lib/audio/recorder";
+  createPreviewUrl,
+  revokePreviewUrl,
+  playCountdownBeep,
+} from "@studio/lib/audio/recordingEngine";
 import {
   encodeWav,
   wavToBlob,
-  createPreviewUrl,
-  revokePreviewUrl,
-} from "@studio/lib/audio/wav";
-import { analyzeTakeQuality } from "@studio/lib/audio/analyzer";
+} from "@studio/lib/audio/wavEncoder";
+import { analyzeTakeQuality } from "@studio/lib/audio/qualityAnalysis";
+import MonitorPanel from "@studio/components/audio/MonitorPanel";
 import { DeviceSettingsPanel } from "@studio/components/audio/DeviceSettingsPanel";
-import { playCountdownBeep } from "@studio/lib/audio/beeper";
+import { cn } from "@studio/lib/utils";
 import {
   parseTimecode,
   formatTimecode,
@@ -56,17 +63,57 @@ import {
   interpolateScrollTop,
   computeAdaptiveMaxSpeedPxPerSec,
   smoothScrollStep,
-} from "@studio/lib/scroll-config";
-import type {
-  ScriptLine,
-  MicrophoneState,
-  RecordingStatus,
-  RecordingResult,
-  QualityMetrics,
-  DeviceSettings,
-  Shortcuts,
-  ScrollAnchor,
-} from "@studio/types/audio";
+} from "@studio/lib/script-scroll-sync";
+
+export interface ScriptLine {
+  character: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
+export type RecordingStatus =
+  | "idle"
+  | "countdown"
+  | "recording"
+  | "recorded"
+  | "previewing";
+
+export interface RecordingResult {
+  samples: Float32Array;
+  durationSeconds: number;
+  sampleRate: number;
+}
+
+export interface QualityMetrics {
+  score: number;
+  clipping: boolean;
+  loudness: number;
+  noiseFloor: number;
+}
+
+export interface DeviceSettings {
+  inputDeviceId: string;
+  outputDeviceId: string;
+  inputGain: number;
+  monitorVolume: number;
+  voiceCaptureMode: VoiceCaptureMode;
+}
+
+export interface Shortcuts {
+  playPause: string;
+  record: string;
+  stop: string;
+  back: string;
+  forward: string;
+  loop: string;
+}
+
+export interface ScrollAnchor {
+  time: number;
+  scrollTop: number;
+}
+
 import { DailyMeetPanel } from "@studio/components/video/DailyMeetPanel";
 
 const DEFAULT_SHORTCUTS: Shortcuts = {
@@ -893,20 +940,6 @@ export default function RecordingRoom() {
       toast({ title: "Erro ao baixar take", variant: "destructive" });
     }
   }, [toast]);
-
-  const handleCharacterChange = (char: { id: string; name: string; voiceActorId: string | null }) => {
-    if (!recordingProfile) return;
-    const newProfile = {
-      ...recordingProfile,
-      characterId: char.id,
-      characterName: char.name,
-      voiceActorId: char.voiceActorId || user?.id || "",
-    };
-    setRecordingProfile(newProfile);
-    localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(newProfile));
-    setCharSelectorOpen(false);
-    toast({ title: `Personagem alterado para ${char.name}` });
-  };
 
   const handleSaveProfile = (profile: RecordingProfile) => {
     setRecordingProfile(profile);

@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 export type LandingHeaderTextConfig = {
   brandAlt: string;
   brandName: string;
+  navHubDub: string;
   authEnter: string;
   authPanel: string;
 };
@@ -13,6 +14,7 @@ export type LandingHeaderTextConfig = {
 export const defaultLandingHeaderTextConfig: LandingHeaderTextConfig = {
   brandAlt: "THE HUB",
   brandName: "THE HUB",
+  navHubDub: "HUBDUB",
   authEnter: "ENTRAR",
   authPanel: "Painel",
 };
