@@ -3,12 +3,12 @@ const THEME_STORAGE_KEY = "vhub_theme_preference";
 export type Theme = "light" | "dark" | "system";
 
 export function getTheme(): Theme {
-  return "light"; // Always light by default
+  return "light";
 }
 
 export function applyTheme(theme: Theme) {
   const root = document.documentElement;
-  // Check if we are in the Recording Room
+  // Check if we are in the Recording Room (Studio Room)
   const isRecordingRoom = window.location.pathname.includes("/room");
 
   if (isRecordingRoom) {
@@ -25,13 +25,22 @@ export function initThemeMode() {
   applyTheme("light");
 
   // Re-apply theme on navigation
+  const originalPushState = window.history.pushState;
+  window.history.pushState = function(...args) {
+    originalPushState.apply(this, args);
+    applyTheme("light");
+  };
+
+  const originalReplaceState = window.history.replaceState;
+  window.history.replaceState = function(...args) {
+    originalReplaceState.apply(this, args);
+    applyTheme("light");
+  };
+
   window.addEventListener("popstate", () => applyTheme("light"));
-  
-  // Custom event for internal navigation if using a router that doesn't trigger popstate
-  window.addEventListener("locationchange", () => applyTheme("light"));
 }
 
 export function toggleTheme() {
-  // Disabled for now as per requirements
+  // Disabled as per requirements: force light mode globally except Room
   return "light";
 }

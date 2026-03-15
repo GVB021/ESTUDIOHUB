@@ -1,425 +1,105 @@
 import { useParams, Link } from "wouter";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { motion, AnimatePresence, useDragControls } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Drawer } from "vaul";
 import { authFetch } from "@studio/lib/auth-fetch";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { ThemeToggle } from "@/components/nav/ThemeToggle";
 import {
   Mic,
-  MicOff,
   Play,
   Pause,
+  RotateCcw,
   Square,
-  Save,
-  Circle,
-  CheckCircle2,
   Volume2,
   VolumeX,
-  Trash2,
-  Headphones,
+  CheckCircle2,
   AlertCircle,
-  RotateCcw,
-  RotateCw,
-  Repeat,
+  Circle,
+  ChevronRight,
+  LogOut,
+  Building2,
   Settings,
   X,
   Monitor,
   User,
   Edit3,
   Download,
-  Minimize2,
-  Maximize2,
   Loader2,
   Menu,
-  ChevronRight,
-  LogOut,
-  Building2,
-  Users,
 } from "lucide-react";
 import { useToast } from "@studio/hooks/use-toast";
 import { useAuth } from "@studio/hooks/use-auth";
-import { formatTimecode, parseTimecode, parseUniversalTimecodeToSeconds } from "@studio/lib/timecode";
 import { cn } from "@studio/lib/utils";
-import {
-  buildScrollAnchors,
-  computeAdaptiveMaxSpeedPxPerSec,
-  interpolateScrollTop,
-  smoothScrollStep,
-  type ScrollAnchor,
-} from "@studio/lib/script-scroll-sync";
-
 import {
   requestMicrophone,
   releaseMicrophone,
-  setGain,
-  getAnalyserData,
-  type MicrophoneState,
-  type VoiceCaptureMode,
-} from "@studio/lib/audio/microphoneManager";
-import MonitorPanel from "@studio/components/audio/MonitorPanel";
-
-
-import {
   startCapture,
   stopCapture,
+  setGain,
+} from "@studio/lib/audio/recorder";
+import {
+  encodeWav,
+  wavToBlob,
   createPreviewUrl,
   revokePreviewUrl,
-  playCountdownBeep,
-  type RecordingStatus,
-  type RecordingResult,
-} from "@studio/lib/audio/recordingEngine";
-import { encodeWav, wavToBlob } from "@studio/lib/audio/wavEncoder";
-import { analyzeTakeQuality, type QualityMetrics } from "@studio/lib/audio/qualityAnalysis";
-
-function DailyMeetPanel({ sessionId }: { sessionId: string }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
-  const [dailyUrl, setDailyUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const dragControls = useDragControls();
-  const constraintsRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!isOpen) return () => { cancelled = true; };
-
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await authFetch("/api/create-room", {
-          method: "POST",
-          body: JSON.stringify({ sessionId }),
-        });
-        if (!cancelled && res?.url) {
-          setDailyUrl(res.url);
-        }
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || "Erro ao criar sala");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [sessionId, isOpen]);
-
-  const panelHeight = isCompact ? "120px" : "min(320px, calc(100vh - 220px))";
-
-  return (
-    <div ref={constraintsRef} className="fixed inset-0 z-[80] pointer-events-none overflow-hidden" data-testid="panel-daily">
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            drag
-            dragConstraints={constraintsRef}
-            dragElastic={0.1}
-            dragMomentum={false}
-            initial={{ opacity: 0, scale: 0.9, x: "calc(100vw - 320px)", y: "calc(100vh - 420px)" }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute rounded-2xl overflow-hidden glass-panel shadow-2xl border border-border/50 pointer-events-auto"
-            style={{ width: "min(300px, 30vw)", minWidth: "200px" }}
-          >
-            <div 
-              onPointerDown={(e) => dragControls.start(e)}
-              className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-muted/40 cursor-grab active:cursor-grabbing touch-none"
-            >
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Mic className="w-3 h-3 text-emerald-500" /> Chat de Voz
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setIsCompact(!isCompact)}
-                  className="p-1 hover:bg-white/10 rounded transition-colors text-muted-foreground hover:text-foreground"
-                  aria-label={isCompact ? "Expandir" : "Minimizar"}
-                >
-                  {isCompact ? <Maximize2 className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
-                </button>
-                <button
-                  onClick={() => setIsOpen(false)}
-                  className="p-1 hover:bg-white/10 rounded transition-colors text-muted-foreground hover:text-foreground"
-                  aria-label="Fechar"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-            <div style={{ height: panelHeight }} className="relative bg-black/60 transition-all duration-300">
-              {loading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                  <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                  <span className="text-[9px] uppercase font-bold tracking-widest">Iniciando...</span>
-                </div>
-              ) : error ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-destructive/50" />
-                  <span className="text-[9px] text-muted-foreground">{error}</span>
-                </div>
-              ) : dailyUrl ? (
-                <iframe
-                  src={dailyUrl}
-                  className="w-full h-full border-none"
-                  allow="camera; microphone; fullscreen; display-capture; autoplay"
-                  title="Daily Video Chat"
-                />
-              ) : null}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setIsOpen(!isOpen)}
-        className="absolute bottom-20 right-5 h-12 w-12 rounded-full flex items-center justify-center shadow-lg pointer-events-auto z-[90]"
-        style={{
-          background: isOpen ? "rgba(255,255,255,0.05)" : "hsl(var(--primary))",
-          color: isOpen ? "rgba(255,255,255,0.60)" : "hsl(var(--primary-foreground))",
-          border: "1px solid rgba(255,255,255,0.1)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-        }}
-        aria-label={isOpen ? "Fechar Chat de Voz" : "Abrir Chat de Voz"}
-        data-testid="button-floating-voice-chat"
-      >
-        {isOpen ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-      </motion.button>
-    </div>
-  );
-}
-
-interface ScriptLine {
-  character: string;
-  start: number;
-  text: string;
-  end?: number;
-}
-
-interface RecordingProfile {
-  voiceActorName: string;
-  characterName: string;
-  characterId: string;
-  voiceActorId: string;
-  userId: string;
-  sessionId: string;
-  productionId: string;
-}
-
-interface Shortcuts {
-  playPause: string;
-  record: string;
-  stop: string;
-  loop: string;
-  back: string;
-  forward: string;
-}
+} from "@studio/lib/audio/wav";
+import { analyzeTakeQuality } from "@studio/lib/audio/analyzer";
+import { DeviceSettingsPanel } from "@studio/components/audio/DeviceSettingsPanel";
+import { playCountdownBeep } from "@studio/lib/audio/beeper";
+import {
+  parseTimecode,
+  formatTimecode,
+  parseUniversalTimecodeToSeconds,
+} from "@studio/lib/timecode";
+import {
+  buildScrollAnchors,
+  interpolateScrollTop,
+  computeAdaptiveMaxSpeedPxPerSec,
+  smoothScrollStep,
+} from "@studio/lib/scroll-config";
+import type {
+  ScriptLine,
+  MicrophoneState,
+  RecordingStatus,
+  RecordingResult,
+  QualityMetrics,
+  DeviceSettings,
+  Shortcuts,
+  ScrollAnchor,
+} from "@studio/types/audio";
+import { DailyMeetPanel } from "@studio/components/video/DailyMeetPanel";
 
 const DEFAULT_SHORTCUTS: Shortcuts = {
   playPause: "Space",
   record: "KeyR",
   stop: "KeyS",
-  loop: "KeyL",
   back: "ArrowLeft",
   forward: "ArrowRight",
+  loop: "KeyL",
 };
 
 const SHORTCUT_LABELS: Record<keyof Shortcuts, string> = {
-  playPause: "Reproduzir / Pausar",
+  playPause: "Play / Pause",
   record: "Gravar",
   stop: "Parar",
-  loop: "Alternar Loop",
-  back: "Recuar 2s",
+  back: "Voltar 2s",
   forward: "Avancar 2s",
+  loop: "Alternar Loop",
 };
 
-function keyLabel(code: string): string {
-  const map: Record<string, string> = {
-    Space: "Space",
-    ArrowLeft: "\u2190",
-    ArrowRight: "\u2192",
-    ArrowUp: "\u2191",
-    ArrowDown: "\u2193",
-    Escape: "Esc",
-  };
-  if (map[code]) return map[code];
+function keyLabel(code: string) {
+  if (code === "Space") return "Espaco";
   if (code.startsWith("Key")) return code.slice(3);
-  if (code.startsWith("Digit")) return code.slice(5);
+  if (code.startsWith("Arrow")) return code.slice(5);
   return code;
 }
 
-function CountdownOverlay({ count }: { count: number }) {
-  return (
-    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center animate-in fade-in duration-200" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-24 h-24 rounded-full flex items-center justify-center" style={{ border: "4px solid rgba(239,68,68,0.4)", boxShadow: "0 0 40px rgba(239,68,68,0.3), inset 0 0 20px rgba(239,68,68,0.1)" }}>
-          <span className="text-6xl font-light font-mono tabular-nums" style={{ color: "hsl(0 72% 65%)", textShadow: "0 0 20px rgba(239,68,68,0.5)" }}>{count}</span>
-        </div>
-        <span className="text-xs uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.45)" }}>Gravando em...</span>
-      </div>
-    </div>
-  );
-}
-
-interface DeviceSettings {
-  inputDeviceId: string;
-  outputDeviceId: string;
-  inputGain: number;
-  monitorVolume: number;
-  voiceCaptureMode: VoiceCaptureMode;
-}
-
-function DeviceSettingsPanel({
-  open,
-  onClose,
-  settings,
-  onSettingsChange,
-  micState,
-}: {
-  open: boolean;
-  onClose: () => void;
-  settings: DeviceSettings;
-  onSettingsChange: (s: DeviceSettings) => void;
-  micState: MicrophoneState | null;
-}) {
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-
-  useEffect(() => {
-    if (open) {
-      navigator.mediaDevices.enumerateDevices().then((d) => {
-        setDevices(d.filter((x) => x.kind === "audioinput"));
-      });
-    }
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <div className="absolute inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="rounded-3xl w-[calc(100vw-32px)] max-w-[440px] overflow-hidden glass-panel shadow-2xl border border-white/10">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-              <Monitor className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-foreground">Configuracoes de Audio</h3>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Entrada e Saida</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/5 transition-colors text-muted-foreground hover:text-foreground"
-            data-testid="button-close-device-settings"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-6 flex flex-col gap-6">
-          <div className="space-y-4">
-            <div>
-              <label className="vhub-label mb-2 block">Microfone</label>
-              <select
-                value={settings.inputDeviceId}
-                onChange={(e) => onSettingsChange({ ...settings, inputDeviceId: e.target.value })}
-                className="w-full h-11 rounded-xl px-4 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none transition-all"
-                data-testid="select-input-device"
-              >
-                <option value="">Padrao do Sistema</option>
-                {devices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || "Microfone Externo"}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="vhub-label">Ganho de Entrada</label>
-                <span className="text-[10px] font-mono text-primary font-bold">{(settings.inputGain * 100).toFixed(0)}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={2}
-                step={0.01}
-                value={settings.inputGain}
-                onChange={(e) =>
-                  onSettingsChange({ ...settings, inputGain: parseFloat(e.target.value) })
-                }
-                className="w-full h-1.5 accent-primary bg-muted rounded-full appearance-none cursor-pointer"
-                data-testid="slider-input-gain"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="vhub-label">Volume do Monitor</label>
-                <span className="text-[10px] font-mono text-primary font-bold">{(settings.monitorVolume * 100).toFixed(0)}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={settings.monitorVolume}
-                onChange={(e) =>
-                  onSettingsChange({ ...settings, monitorVolume: parseFloat(e.target.value) })
-                }
-                className="w-full h-1.5 accent-primary bg-muted rounded-full appearance-none cursor-pointer"
-                data-testid="slider-monitor-volume"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="vhub-label mb-2 block">Modo de Captura</label>
-            <select
-              value={settings.voiceCaptureMode}
-              onChange={(e) => onSettingsChange({ ...settings, voiceCaptureMode: e.target.value as VoiceCaptureMode })}
-              className="w-full h-11 rounded-xl px-4 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none transition-all"
-              data-testid="select-voice-capture-mode"
-            >
-              <option value="studio">Studio Mode (Processado)</option>
-              <option value="original">Microfone Original</option>
-              <option value="high-fidelity">High-End (Lossless 24-bit)</option>
-            </select>
-            <p className="text-[10px] mt-3 leading-relaxed text-muted-foreground font-medium italic">
-              {settings.voiceCaptureMode === "studio"
-                ? "Filtro passa-alta 80Hz + compressor + reducao de ruido. Ideal para ambientes ruidosos."
-                : settings.voiceCaptureMode === "high-fidelity"
-                ? "Captura RAW 24-bit via AudioWorklet. Desativa todo processamento do sistema. Requer interface de audio."
-                : "Captura padrao do navegador sem efeitos adicionais."}
-            </p>
-          </div>
-
-          {settings.voiceCaptureMode === "high-fidelity" && (
-            <div className="p-4 rounded-2xl bg-destructive/10 border border-destructive/20 flex gap-3 items-start">
-              <div className="mt-1 w-2 h-2 shrink-0 rounded-full bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse" />
-              <div>
-                <p className="text-xs font-bold text-destructive">Controle Exclusivo de Hardware</p>
-                <p className="text-[10px] text-destructive/70 leading-snug mt-1 font-medium">
-                  O sistema assumiu o controle do driver de audio para garantir 48kHz/24-bit with zero latency.
-                </p>
-              </div>
-            </div>
-          )}
-
-          <button
-            onClick={onClose}
-            className="w-full h-12 rounded-2xl bg-primary text-primary-foreground font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-            data-testid="button-apply-device-settings"
-          >
-            Concluido
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+interface RecordingProfile {
+  actorName: string;
+  characterId: string;
+  characterName: string;
+  voiceActorId: string;
+  voiceActorName: string;
 }
 
 function RecordingProfilePanel({
@@ -439,61 +119,51 @@ function RecordingProfilePanel({
   onClose?: () => void;
   existingProfile?: RecordingProfile | null;
 }) {
-  const [actorName, setActorName] = useState(
-    existingProfile?.voiceActorName || user?.displayName || user?.fullName || ""
-  );
-  const [selectedCharId, setSelectedCharId] = useState(
-    existingProfile?.characterId || (characters.length > 0 ? characters[0].id : "")
-  );
+  const [actorName, setActorName] = useState(existingProfile?.actorName || user?.fullName || user?.displayName || "");
+  const [selectedCharId, setSelectedCharId] = useState(existingProfile?.characterId || "");
   const [freeCharName, setFreeCharName] = useState(existingProfile?.characterName || "");
-
-  const { toast } = useToast();
-  const selectedChar = characters.find((c) => c.id === selectedCharId);
-  const hasCharacters = characters.length > 0;
   const [isCreating, setIsCreating] = useState(false);
 
+  const hasCharacters = characters.length > 0;
+
   const handleSubmit = async () => {
-    if (!actorName.trim()) return;
-    if (hasCharacters && selectedChar) {
-      onSave({
-        voiceActorName: actorName.trim(),
-        characterName: selectedChar.name,
-        characterId: selectedChar.id,
-        voiceActorId: selectedChar.voiceActorId || user?.id || "",
-        userId: user?.id || "",
-        sessionId,
-        productionId,
-      });
-    } else if (freeCharName.trim()) {
-      setIsCreating(true);
-      try {
-        const res = await authFetch(`/api/productions/${productionId}/characters`, {
+    setIsCreating(true);
+    try {
+      let charId = selectedCharId;
+      let charName = "";
+
+      if (hasCharacters) {
+        const char = characters.find((c) => c.id === selectedCharId);
+        charName = char?.name || "";
+      } else {
+        const resp = await authFetch(`/api/productions/${productionId}/characters`, {
           method: "POST",
-          body: JSON.stringify({ name: freeCharName.trim() }),
+          body: JSON.stringify({ name: freeCharName }),
         });
-        onSave({
-          voiceActorName: actorName.trim(),
-          characterName: res.name,
-          characterId: res.id,
-          voiceActorId: user?.id || "",
-          userId: user?.id || "",
-          sessionId,
-          productionId,
-        });
-      } catch (err: any) {
-        toast({ title: "Erro ao criar personagem", description: err.message, variant: "destructive" });
-      } finally {
-        setIsCreating(false);
+        charId = resp.id;
+        charName = resp.name;
       }
+
+      onSave({
+        actorName,
+        characterId: charId,
+        characterName: charName,
+        voiceActorId: user?.id || "",
+        voiceActorName: actorName,
+      });
+    } catch (err) {
+      console.error("Failed to setup profile:", err);
+    } finally {
+      setIsCreating(false);
     }
   };
 
   return (
-    <div className="absolute inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="rounded-3xl w-[calc(100vw-32px)] max-w-[440px] overflow-hidden glass-panel shadow-2xl border border-white/10">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-white/5">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[420px] overflow-hidden glass-panel shadow-2xl border border-border/50">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border/10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
               <User className="w-5 h-5" />
             </div>
             <div>
@@ -601,6 +271,22 @@ function useTakesList(sessionId: string) {
     enabled: Boolean(sessionId),
     refetchInterval: 5000,
   });
+}
+
+function CountdownOverlay({ count }: { count: number }) {
+  return (
+    <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none">
+      <motion.div
+        key={count}
+        initial={{ scale: 0.5, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 1.5, opacity: 0 }}
+        className="text-[120px] font-black text-primary drop-shadow-[0_0_30px_rgba(var(--primary),0.5)]"
+      >
+        {count}
+      </motion.div>
+    </div>
+  );
 }
 
 export default function RecordingRoom() {
@@ -895,7 +581,7 @@ export default function RecordingRoom() {
     return () => {
       ws.close();
     };
-  }, [sessionId]);
+  }, [sessionId, micState]);
 
   const rebuildScrollAnchors = useCallback(() => {
     const viewport = scriptViewportRef.current;
@@ -1180,91 +866,11 @@ export default function RecordingRoom() {
     }
   }, [canTextControl, scriptLines, loopSelectionMode, toast, emitVideoEvent, customLoop]);
 
-  const handlePreview = useCallback(() => {
-    if (!lastRecording || !previewAudioRef.current) return;
-    logAudioStep("preview-started", { sampleCount: lastRecording.samples.length, durationSeconds: lastRecording.durationSeconds });
-    const wav = encodeWav(lastRecording.samples);
-    const blob = wavToBlob(wav);
-    const url = createPreviewUrl(blob);
-    previewAudioRef.current.src = url;
-    previewAudioRef.current.volume = deviceSettings.monitorVolume;
-    previewAudioRef.current.play().catch((err) => {
-      logAudioStep("preview-error", { message: String(err?.message || err) });
-      toast({ title: "Falha na reprodução", description: "Não foi possível reproduzir o take gravado.", variant: "destructive" });
-    });
-    setRecordingStatus("previewing");
-    
-    previewAudioRef.current.onended = () => {
-      setRecordingStatus("recorded");
-      revokePreviewUrl(url);
-      logAudioStep("preview-ended");
-    };
-  }, [lastRecording, deviceSettings.monitorVolume, logAudioStep, toast]);
-
   const handleDiscard = useCallback(() => {
     setLastRecording(null);
     setQualityMetrics(null);
     setRecordingStatus("idle");
   }, []);
-
-  const handleSaveTake = useCallback(async () => {
-    if (isSaving) return;
-    if (!lastRecording) {
-      toast({ title: "Nenhum take para salvar", description: "Grave um take antes de salvar.", variant: "destructive" });
-      return;
-    }
-    if (!recordingProfile) {
-      setShowProfilePanel(true);
-      toast({ title: "Perfil de gravação pendente", description: "Defina ator e personagem antes de salvar.", variant: "destructive" });
-      return;
-    }
-    setIsSaving(true);
-    try {
-      logAudioStep("encoding-wav", {
-        sampleCount: lastRecording.samples.length,
-        durationSeconds: lastRecording.durationSeconds,
-      });
-      const wav = encodeWav(lastRecording.samples);
-      const blob = wavToBlob(wav);
-      
-      const formData = new FormData();
-      formData.append("audio", blob, "take.wav");
-      formData.append("characterId", recordingProfile.characterId);
-      formData.append("characterName", recordingProfile.characterName);
-      formData.append("lineIndex", String(currentLine));
-      formData.append("durationSeconds", String(lastRecording.durationSeconds));
-      formData.append("voiceActorId", recordingProfile.voiceActorId);
-      formData.append("voiceActorName", recordingProfile.voiceActorName);
-      formData.append("isDone", "true");
-      formData.append("sampleRate", String(lastRecording.sampleRate || 48000));
-      if (qualityMetrics?.score !== undefined && qualityMetrics?.score !== null) {
-        formData.append("qualityScore", String(qualityMetrics.score));
-      }
-      if (currentScriptLine) {
-        formData.append("startTimeSeconds", String(currentScriptLine.start));
-        formData.append("timecode", formatTimecode(currentScriptLine.start));
-      }
-
-      const savedTake = await authFetch(`/api/sessions/${sessionId}/takes`, {
-        method: "POST",
-        body: formData,
-      });
-      logAudioStep("save-success", {
-        takeId: savedTake?.id,
-        lineIndex: currentLine,
-        durationSeconds: lastRecording.durationSeconds,
-      });
-
-      queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "takes"] });
-      toast({ title: "Take salvo com sucesso!" });
-      handleDiscard();
-    } catch (err: any) {
-      logAudioStep("save-error", { message: err.message });
-      toast({ title: "Erro ao salvar take", description: err.message, variant: "destructive" });
-    } finally {
-      setIsSaving(false);
-    }
-  }, [lastRecording, recordingProfile, currentLine, sessionId, queryClient, toast, handleDiscard, isSaving, qualityMetrics, currentScriptLine, logAudioStep]);
 
   const handleDownloadTake = useCallback(async (take: any) => {
     try {
@@ -1288,13 +894,18 @@ export default function RecordingRoom() {
     }
   }, [toast]);
 
-  const handleChangeCharacter = (charId: string) => {
-    const char = charactersList?.find((c) => c.id === charId);
-    if (char && recordingProfile) {
-      const next = { ...recordingProfile, characterId: char.id, characterName: char.name };
-      setRecordingProfile(next);
-      localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(next));
-    }
+  const handleCharacterChange = (char: { id: string; name: string; voiceActorId: string | null }) => {
+    if (!recordingProfile) return;
+    const newProfile = {
+      ...recordingProfile,
+      characterId: char.id,
+      characterName: char.name,
+      voiceActorId: char.voiceActorId || user?.id || "",
+    };
+    setRecordingProfile(newProfile);
+    localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(newProfile));
+    setCharSelectorOpen(false);
+    toast({ title: `Personagem alterado para ${char.name}` });
   };
 
   const handleSaveProfile = (profile: RecordingProfile) => {
@@ -1302,15 +913,6 @@ export default function RecordingRoom() {
     localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(profile));
     setShowProfilePanel(false);
   };
-
-  const deleteTakeMutation = useMutation({
-    mutationFn: (takeId: string) => authFetch(`/api/takes/${takeId}`, { method: "DELETE" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "takes"] });
-      toast({ title: "Take excluido" });
-    },
-    onError: (err: any) => toast({ title: "Erro ao excluir", description: err.message, variant: "destructive" }),
-  });
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1358,7 +960,7 @@ export default function RecordingRoom() {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col select-none relative bg-background text-foreground">
+    <div className="h-screen w-screen overflow-hidden flex flex-col select-none relative bg-background text-foreground dark">
       {/* Cinematic Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-background to-background opacity-50"></div>
@@ -1541,145 +1143,6 @@ export default function RecordingRoom() {
         </div>
       )}
 
-      {textControlPopupOpen && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/50 backdrop-blur-sm">
-          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden bg-popover/95 backdrop-blur-xl border border-border/50 shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border/10">
-              <span className="text-sm font-semibold text-foreground">Controle de Texto</span>
-              <button
-                onClick={() => setTextControlPopupOpen(false)}
-                className="transition-colors text-muted-foreground hover:text-foreground"
-                data-testid="button-close-text-control"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="px-6 py-5">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Autorizacao (Alunos / Dubladores)</span>
-                <button
-                  onClick={() => {
-                    const ok = window.confirm("Revogar permissoes temporarias e remover autorizacoes de controle de texto?");
-                    if (!ok) return;
-                    emitVideoEvent("revoke-all", {});
-                    emitTextControlEvent("text-control:set-controllers", { targetUserIds: [] });
-                    setControlPermissions(new Set());
-                    setGlobalControlEnabled(false);
-                    setTextControllerUserIds(new Set());
-                    setPendingTextControllerUserIds(new Set());
-                    setTextControlPopupOpen(false);
-                  }}
-                  className="text-[9px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors uppercase font-bold"
-                  data-testid="button-revoke-all-text-control"
-                >
-                  Revogar tudo
-                </button>
-              </div>
-
-              <div className="text-[11px] mb-3 text-muted-foreground">
-                Autorizados:{" "}
-                <span className="text-foreground/80">
-                  {(() => {
-                    const roster = (presenceUsers.length
-                      ? presenceUsers
-                      : (session?.participants || []).map((p: any) => ({ userId: p.userId, name: p.user?.fullName || p.user?.displayName || p.user?.email || "Usuario", role: p.role }))
-                    );
-                    const names = roster
-                      .filter((u: any) => pendingTextControllerUserIds.has(u.userId))
-                      .map((u: any) => u.name || "Usuario");
-                    return names.length ? names.join(", ") : "Nenhum";
-                  })()}
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto pr-1">
-                {(() => {
-                  const roster = (presenceUsers.length
-                    ? presenceUsers
-                    : (session?.participants || []).map((p: any) => ({ userId: p.userId, name: p.user?.fullName || p.user?.displayName || p.user?.email || "Usuario", role: p.role }))
-                  );
-                  const eligible = roster.filter((p: any) => {
-                    const r = String(p.role || "").toLowerCase();
-                    return r === "aluno" || r === "dublador" || r === "voice_actor" || r === "student";
-                  });
-                  if (!eligible.length) {
-                    return (
-                      <div className="text-sm text-center py-10 text-muted-foreground/40">
-                        Nenhum aluno ou dublador conectado
-                      </div>
-                    );
-                  }
-                  return eligible.map((p: any) => {
-                    const checked = pendingTextControllerUserIds.has(p.userId);
-                    return (
-                      <label
-                        key={p.userId}
-                        className="flex items-center justify-between text-xs rounded-lg px-3 py-2 cursor-pointer bg-muted/20 border border-border/30 hover:bg-muted/30 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center text-[10px] font-bold shrink-0 text-primary">
-                            {String(p.name || "?")[0] || "?"}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="truncate text-foreground/80">{p.name || "Usuario"}</span>
-                              {checked && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 uppercase shrink-0 text-primary">
-                                  Autorizado
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] uppercase text-muted-foreground/50">
-                              {String(p.role || "").replace(/_/g, " ") || "participante"}
-                            </div>
-                          </div>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setPendingTextControllerUserIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(p.userId)) next.delete(p.userId);
-                              else next.add(p.userId);
-                              return next;
-                            });
-                          }}
-                          className="h-4 w-4 accent-primary"
-                          data-testid={`checkbox-text-controller-${p.userId}`}
-                        />
-                      </label>
-                    );
-                  });
-                })()}
-              </div>
-
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => setTextControlPopupOpen(false)}
-                  className="vhub-btn-xs vhub-btn-secondary"
-                  data-testid="button-cancel-text-control"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    const targetUserIds = Array.from(pendingTextControllerUserIds);
-                    setTextControllerUserIds(new Set(targetUserIds));
-                    emitTextControlEvent("text-control:set-controllers", { targetUserIds });
-                    setTextControlPopupOpen(false);
-                  }}
-                  className="vhub-btn-xs vhub-btn-primary"
-                  data-testid="button-apply-text-control"
-                >
-                  Aplicar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <audio ref={previewAudioRef} preload="none" />
 
       <header className="shrink-0 flex items-center justify-between px-3 h-12 sm:h-14 relative z-20" style={{ background: "hsl(var(--background) / 0.90)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: "1px solid hsl(var(--border) / 0.9)" }}>
@@ -1769,7 +1232,6 @@ export default function RecordingRoom() {
                   <span className="hidden lg:inline">Sair</span>
                 </button>
               </div>
-              <ThemeToggle />
               <button
                 onClick={() => setDeviceSettingsOpen(true)}
                 className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
@@ -1779,7 +1241,7 @@ export default function RecordingRoom() {
                 <Monitor className="w-4 h-4" />
               </button>
               <button
-                onClick={() => { setIsCustomizing(true); setPendingShortcuts(shortcuts); }}
+                onClick={() => setIsCustomizing(true)}
                 className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
                 aria-label="Atalhos de teclado"
                 data-testid="button-open-shortcuts"
@@ -1793,14 +1255,11 @@ export default function RecordingRoom() {
 
       <div className={cn(
         "flex-1 grid overflow-hidden",
-        isMobile ? "grid-cols-1" : "grid-cols-[1.25fr_0.75fr]"
+        isMobile ? "grid-cols-1" : "grid-cols-2"
       )}>
-        <div className="flex flex-col min-h-0 relative">
-          <div className="flex-1 flex flex-col min-h-0 bg-black/20">
-          <div className={cn(
-            "flex-1 min-h-[200px] relative overflow-hidden rounded-2xl border border-border/60 bg-background/80",
-              isMobile ? "m-0 rounded-none border-none" : "m-2"
-            )}>
+        <div className="flex flex-col min-h-0 relative border-r border-border/60">
+          <div className="flex-1 flex flex-col min-h-0 bg-black/40 relative">
+            <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
               {production?.videoUrl ? (
                 <video
                   ref={videoRef}
@@ -1851,7 +1310,7 @@ export default function RecordingRoom() {
               </AnimatePresence>
 
               {currentScriptLine && (
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-10 sm:pt-16 pb-4 sm:pb-6 px-4 sm:px-8">
+                <div className="absolute bottom-16 left-0 right-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-10 sm:pt-16 pb-4 sm:pb-6 px-4 sm:px-8 pointer-events-none">
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="text-[10px] sm:text-[11px] font-mono text-blue-300/90 bg-black/50 px-1.5 py-0.5 rounded">
                       {formatTimecode(currentScriptLine.start)}
@@ -1868,301 +1327,109 @@ export default function RecordingRoom() {
 
               <button
                 onClick={() => setIsMuted((m) => !m)}
-                className="absolute top-3 right-3 p-2 rounded-xl bg-background/80 text-muted-foreground hover:text-foreground transition-all hover:bg-background"
+                className="absolute top-3 right-3 p-2 rounded-xl bg-black/40 text-white/60 hover:text-white transition-all hover:bg-black/60 z-30"
                 aria-label={isMuted ? "Ativar som" : "Desativar som"}
-                data-testid="button-mute"
               >
                 {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
-            </div>
 
-            {videoDuration > 0 && (
-              <div className="px-3 sm:px-5 py-2 bg-muted/30 border-t border-border/70">
-                <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground">
-                  <span>{formatTimecode(videoTime)}</span>
-                  <div className="flex-1 relative h-1.5 rounded-full cursor-pointer group bg-border/60" onClick={(e) => {
+              <div className="absolute bottom-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md border-t border-white/10 flex items-center px-4 gap-4 z-40">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => seek(-2)}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-all bg-white/5 text-white/70 hover:text-white"
+                    aria-label="Recuar 2 segundos"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handlePlayPause}
+                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all bg-primary text-primary-foreground shadow-lg"
+                    aria-label={isPlaying ? "Pausar" : "Reproduzir"}
+                  >
+                    {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+                  </button>
+                </div>
+
+                <div className="flex-1 flex flex-col gap-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-white/50">
+                    <span>{formatTimecode(videoTime)}</span>
+                    <span>{formatTimecode(videoDuration)}</span>
+                  </div>
+                  <div className="relative h-1.5 rounded-full cursor-pointer group bg-white/10" onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     scrub((e.clientX - rect.left) / rect.width);
                   }}>
-                    {scriptLines.map((line, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          "absolute top-0 bottom-0 rounded-sm transition-all",
-                          savedTakes.has(i) ? "bg-emerald-400/70" :
-                          i === currentLine ? "bg-blue-400/70" :
-                          "bg-white/15"
-                        )}
-                        style={{
-                          left: `${(line.start / videoDuration) * 100}%`,
-                          width: `${Math.max(0.5, ((line.end! - line.start) / videoDuration) * 100)}%`,
-                        }}
-                      />
-                    ))}
                     <div
-                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md"
-                      style={{ left: `${(videoTime / videoDuration) * 100}%`, transform: "translate(-50%,-50%)", background: "hsl(var(--primary))", border: "2px solid rgba(255,255,255,0.80)", boxShadow: "0 0 8px rgba(245,158,11,0.4)" }}
+                      className="absolute top-0 bottom-0 rounded-full bg-primary"
+                      style={{ width: `${(videoTime / videoDuration) * 100}%` }}
                     />
                   </div>
-                  <span>{formatTimecode(videoDuration)}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="shrink-0 px-3 sm:px-5 py-4 sm:py-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-0 bg-card/70 backdrop-blur-xl border-t border-border/70">
-              <div className="hidden sm:flex w-56 shrink-0 flex-col justify-center gap-1 py-3">
-                <div className="flex items-center justify-between text-[10px] mb-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
-                  <span className="uppercase tracking-wider">
-                    {recordingStatus === "recording" ? "Ao Vivo" :
-                      recordingStatus === "previewing" ? "Reproduzindo" :
-                      recordingStatus === "recorded" ? "Gravado" :
-                      micReady ? "Monitorando" : "Sem microfone"}
-                  </span>
-                  {recordingStatus === "recording" && (
-                    <span className="flex items-center gap-1" style={{ color: "hsl(0 72% 65%)" }}>
-                      <Circle className="w-1.5 h-1.5 fill-red-500 animate-pulse" /> REC
-                    </span>
-                  )}
-                  {(recordingStatus === "recorded" || recordingStatus === "previewing") && lastRecording && (
-                    <div className="flex items-center gap-2">
-                      {qualityMetrics && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={
-                          qualityMetrics.score > 80 ? { background: "rgba(16,185,129,0.12)", color: "hsl(160 84% 60%)", border: "1px solid rgba(16,185,129,0.25)" } :
-                          qualityMetrics.score > 50 ? { background: "rgba(245,158,11,0.12)", color: "hsl(45 93% 55%)", border: "1px solid rgba(245,158,11,0.25)" } :
-                          { background: "rgba(239,68,68,0.12)", color: "hsl(0 72% 65%)", border: "1px solid rgba(239,68,68,0.25)" }
-                        }>
-                          {qualityMetrics.score}
-                        </span>
-                      )}
-                      <span className="font-mono" style={{ color: "hsl(45 93% 55%)" }}>{lastRecording.durationSeconds.toFixed(1)}s</span>
-                    </div>
-                  )}
-                </div>
-                <MonitorPanel
-                  micState={micState}
-                  recordingStatus={recordingStatus}
-                  lastRecording={lastRecording}
-                  previewAudioRef={previewAudioRef}
-                  savedSamples={null}
-                />
-              </div>
-
-              <div className="w-full flex items-center justify-center gap-3 sm:gap-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <button
-                    onClick={() => seek(-2)}
-                    className="w-11 h-11 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all bg-muted/60 text-muted-foreground hover:text-foreground"
-                    aria-label="Recuar 2 segundos"
-                    data-testid="button-back-2s"
-                  >
-                    <RotateCcw className="w-5 h-5" />
-                  </button>
-
-                  <button
-                    onClick={handlePlayPause}
-                    className="w-12 h-12 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all bg-primary text-primary-foreground shadow-lg"
-                    aria-label={isPlaying ? "Pausar" : "Reproduzir"}
-                    data-testid="button-play-pause"
-                  >
-                    {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
-                  </button>
-
-                  <button
-                    onClick={recordingStatus === "recording" ? handleStopRecording : handleStopPlayback}
-                    className="w-11 h-11 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all bg-muted/60 text-muted-foreground hover:text-foreground"
-                    aria-label="Parar"
-                    data-testid="button-stop"
-                  >
-                    <Square className="w-5 h-5" />
-                  </button>
                 </div>
 
-                <div className="w-px h-8 bg-border/80" />
-
-                {recordingStatus === "idle" || recordingStatus === "countdown" ? (
-                  <button
-                    onClick={startCountdown}
-                    disabled={!micReady || recordingStatus === "countdown"}
-                    className={cn(
-                      "w-14 h-14 rounded-full flex items-center justify-center transition-all disabled:opacity-30",
-                      recordingStatus === "countdown" ? "bg-amber-500/20 border border-amber-500/40 animate-pulse" : "bg-white/[0.08] border border-white/[0.15]"
-                    )}
-                    aria-label="Gravar"
-                    data-testid="button-record"
-                  >
-                    <Mic className="w-6 h-6" />
-                  </button>
-                ) : recordingStatus === "recording" ? (
-                  <button
-                    onClick={handleStopRecording}
-                    className="w-14 h-14 rounded-full flex items-center justify-center transition-all bg-red-500 shadow-[0_0_24px_rgba(239,68,68,0.4)]"
-                    aria-label="Parar gravação"
-                    data-testid="button-stop-recording"
-                  >
-                    <Square className="w-6 h-6 text-white fill-white" />
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-2">
+                  {recordingStatus === "idle" || recordingStatus === "countdown" ? (
                     <button
-                      onClick={handlePreview}
+                      onClick={startCountdown}
+                      disabled={!micReady || recordingStatus === "countdown"}
                       className={cn(
-                        "w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all",
-                        recordingStatus === "previewing" ? "bg-primary text-primary-foreground shadow-[0_0_16px_rgba(245,158,11,0.3)]" : "bg-muted/60 border border-border/70 text-foreground"
+                        "w-11 h-11 rounded-full flex items-center justify-center transition-all",
+                        recordingStatus === "countdown" ? "bg-amber-500/20 border border-amber-500/40 animate-pulse" : "bg-white/10 border border-white/20 text-white"
                       )}
-                      aria-label="Ouvir take"
-                      data-testid="button-preview"
                     >
-                      <Headphones className="w-5 h-5" />
+                      <Mic className="w-5 h-5" />
                     </button>
+                  ) : (
                     <button
-                      onClick={handleSaveTake}
-                      disabled={isSaving}
-                      className="w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center bg-emerald-600 text-white shadow-[0_0_16px_rgba(16,185,129,0.3)] disabled:opacity-50"
-                      aria-label="Salvar take"
-                      data-testid="button-save-take"
+                      onClick={handleStopRecording}
+                      className="w-11 h-11 rounded-full flex items-center justify-center transition-all bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)] animate-pulse"
                     >
-                      <Save className="w-5 h-5" />
+                      <Square className="w-5 h-5 text-white fill-white" />
                     </button>
-                    <button
-                      onClick={handleDiscard}
-                      className="w-11 h-11 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-red-500/10 text-red-500/70 border border-red-500/20"
-                      aria-label="Descartar take"
-                      data-testid="button-discard-take"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                )}
-
-                {!isMobile && (
-                  <>
-                    <div className="w-px h-8 bg-white/[0.1]" />
-                    <button
-                      onClick={() => seek(2)}
-                      className="w-10 h-10 rounded-xl flex items-center justify-center transition-all bg-muted/60 text-muted-foreground hover:text-foreground"
-                      aria-label="Avançar 2 segundos"
-                      data-testid="button-forward-2s"
-                    >
-                      <RotateCw className="w-5 h-5" />
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        if (loopSelectionMode === "idle") {
-                          setLoopSelectionMode("selecting-start");
-                          setIsLooping(true);
-                          toast({ title: "Modo de Selecao de Loop", description: "Clique na primeira fala para iniciar o loop." });
-                        } else {
-                          setLoopSelectionMode("idle");
-                          setCustomLoop(null);
-                          setIsLooping(false);
-                          emitVideoEvent("sync-loop", { loopRange: null });
-                        }
-                      }}
-                      className={cn(
-                        "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
-                        isLooping || loopSelectionMode !== "idle" ? "bg-primary/20 text-primary border border-primary/30" : "bg-muted/60 text-muted-foreground"
-                      )}
-                      aria-label="Alternar loop"
-                      data-testid="button-loop"
-                    >
-                      <Repeat className="w-5 h-5" />
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {!isMobile && (
-                <div className="w-44 shrink-0 flex flex-col items-end gap-1.5 py-3">
-                  {isLooping && (
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
-                        <span>Pre-roll</span>
-                        <div className="flex gap-0.5">
-                          {[0.5, 1, 2, 3].map((v) => (
-                            <button
-                              key={v}
-                              onClick={() => setPreRoll(v)}
-                              className={cn(
-                                "px-1.5 py-0.5 rounded text-[10px] transition-colors",
-                                preRoll === v ? "bg-primary/20 text-primary border border-primary/30" : "bg-white/[0.05] text-white/50"
-                              )}
-                              data-testid={`preroll-${v}`}
-                            >
-                              {v}s
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
-                        <span>Post-roll</span>
-                        <div className="flex gap-0.5">
-                          {[0.5, 1, 2, 3].map((v) => (
-                            <button
-                              key={v}
-                              onClick={() => setPostRoll(v)}
-                              className={cn(
-                                "px-1.5 py-0.5 rounded text-[10px] transition-colors",
-                                postRoll === v ? "bg-primary/20 text-primary border border-primary/30" : "bg-white/[0.05] text-white/50"
-                              )}
-                              data-testid={`postroll-${v}`}
-                            >
-                              {v}s
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
                   )}
-                  <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.40)" }}>
-                    {savedTakes.size} / {scriptLines.length} linhas salvas
-                  </p>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </div>
 
-        {!isMobile && (
-          <div className="flex flex-col min-h-0 bg-card/40">
-            <div className="h-11 shrink-0 px-5 flex items-center justify-between border-b border-border/70 bg-muted/30">
-              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Roteiro
+        <div className="flex flex-col min-h-0 bg-background/40 relative">
+          <div className="h-11 shrink-0 px-5 flex items-center justify-between border-b border-border/70 bg-muted/30">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Roteiro
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => { setScriptAutoFollow(true); syncScrollToCurrentVideoTime(); }}
+                className={cn(
+                  "text-[10px] px-2 py-1 rounded-full transition-colors border",
+                  scriptAutoFollow ? "bg-primary/15 text-primary border-primary/25" : "bg-muted/60 text-muted-foreground border-border/70"
+                )}
+              >
+                {scriptAutoFollow ? "AUTO" : "SEGUIR"}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                <span className="font-mono text-foreground">{currentLine + 1}</span>
+                {" "}/{" "}
+                {scriptLines.length}
               </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setScriptAutoFollow(true); syncScrollToCurrentVideoTime(); }}
-                  className={cn(
-                    "text-[10px] px-2 py-1 rounded-full transition-colors border",
-                    scriptAutoFollow ? "bg-primary/15 text-primary border-primary/25" : "bg-muted/60 text-muted-foreground border-border/70"
-                  )}
-                  data-testid="button-script-follow"
-                >
-                  {scriptAutoFollow ? "AUTO" : "SEGUIR"}
-                </button>
-                <span className="text-xs text-muted-foreground">
-                  <span className="font-mono text-foreground">{currentLine + 1}</span>
-                  {" "}/{" "}
-                  {scriptLines.length}
-                </span>
-              </div>
             </div>
+          </div>
 
-            <div
-              ref={scriptViewportRef}
-              className="flex-1 overflow-y-auto py-3 px-4 min-h-0 relative"
-              onWheelCapture={markScriptUserScrollIntent}
-              onTouchMoveCapture={markScriptUserScrollIntent}
-              onPointerDownCapture={markScriptUserScrollIntent}
-              onScrollCapture={() => {
-                scrollSyncCurrentRef.current = scriptViewportRef.current?.scrollTop || 0;
-              }}
-            >
+          <div
+            ref={scriptViewportRef}
+            className="flex-1 overflow-y-auto py-3 px-4 min-h-0 relative custom-scrollbar"
+            onWheelCapture={markScriptUserScrollIntent}
+            onTouchMoveCapture={markScriptUserScrollIntent}
+            onPointerDownCapture={markScriptUserScrollIntent}
+            onScrollCapture={() => {
+              scrollSyncCurrentRef.current = scriptViewportRef.current?.scrollTop || 0;
+            }}
+          >
               {scriptLines.map((line, i) => {
                 const isActive = i === currentLine;
                 const isDone = savedTakes.has(i);
-                const isInLoop = customLoop && line.start >= customLoop.start && (line.end || line.start) <= customLoop.end;
                 return (
                   <div
                     key={i}
@@ -2170,18 +1437,16 @@ export default function RecordingRoom() {
                     onClick={canTextControl ? (() => handleLineClick(i)) : undefined}
                     className={cn(
                       "mb-3 px-5 py-4 rounded-xl transition-all duration-300 relative overflow-hidden",
-                      isActive ? "bg-background/85 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] backdrop-blur-md" : (isInLoop ? "bg-primary/5 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)]" : "bg-transparent"),
+                      isActive ? "bg-background/85 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] backdrop-blur-md" : "bg-transparent",
                       canTextControl ? "cursor-pointer" : "cursor-default"
                     )}
-                    data-testid={`script-line-${i}`}
                   >
-                    {isInLoop && <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500/40" />}
                     <div className="flex items-center gap-3 mb-2">
                       <span className="text-[16px] font-mono tabular-nums text-muted-foreground">{formatTimecode(line.start)}</span>
                       <span className={cn("text-[24px] font-extrabold uppercase tracking-tight", isActive ? "text-primary" : "text-muted-foreground")}>
                         {line.character}
                       </span>
-                      {isDone && <CheckCircle2 className="ml-auto w-5 h-5 text-emerald-500" />}
+                      {isDone && <CheckCircle2 className="w-5 h-5 ml-auto text-emerald-500" />}
                     </div>
                     <p className={cn("text-[22px] leading-relaxed", isActive ? "text-foreground font-medium" : "text-muted-foreground")}>
                       {lineEdits[i] ?? line.text}
@@ -2191,94 +1456,62 @@ export default function RecordingRoom() {
               })}
             </div>
           </div>
-        )}
-      </div>
+        </div>
 
       <AnimatePresence>
         {isMobile && (
           <>
-            {/* Mobile Sidebar / Menu Drawer */}
             <Drawer.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <Drawer.Portal>
                 <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110]" />
                 <Drawer.Content className="bg-zinc-950 flex flex-col rounded-t-[32px] fixed bottom-0 left-0 right-0 z-[120] outline-none max-h-[90vh]">
                   <div className="p-6 pb-12 overflow-y-auto">
                     <div className="mx-auto w-12 h-1.5 rounded-full bg-zinc-800 mb-8" />
-                    <h2 className="text-xl font-bold mb-6">Menu do Estúdio</h2>
-                    
+                    <h2 className="text-xl font-bold mb-6 text-white">Menu do Estúdio</h2>
                     <div className="space-y-4">
                       <button
                         onClick={() => { setDeviceSettingsOpen(true); setMobileMenuOpen(false); }}
-                        className="w-full flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
+                        className="w-full flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all min-h-[56px]"
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                             <Monitor className="w-5 h-5" />
                           </div>
                           <div className="text-left">
-                            <div className="font-bold text-sm">Dispositivos</div>
+                            <div className="font-bold text-sm text-white">Dispositivos</div>
                             <div className="text-[11px] text-white/40 uppercase tracking-wider">Configurar Áudio</div>
                           </div>
                         </div>
                         <ChevronRight className="w-5 h-5 text-white/20" />
                       </button>
-
                       <button
                         onClick={() => { setShowProfilePanel(true); setMobileMenuOpen(false); }}
-                        className="w-full flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
+                        className="w-full flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all min-h-[56px]"
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
                             <User className="w-5 h-5" />
                           </div>
                           <div className="text-left">
-                            <div className="font-bold text-sm">Perfil de Gravação</div>
+                            <div className="font-bold text-sm text-white">Perfil de Gravação</div>
                             <div className="text-[11px] text-white/40 uppercase tracking-wider">Ator & Personagem</div>
                           </div>
                         </div>
                         <ChevronRight className="w-5 h-5 text-white/20" />
                       </button>
-
-                      <button
-                        onClick={() => { setTakesPopupOpen(true); setMobileMenuOpen(false); }}
-                        className="w-full flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                            <Save className="w-5 h-5" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-bold text-sm">Takes Salvos</div>
-                            <div className="text-[11px] text-white/40 uppercase tracking-wider">{takesList.length} arquivos</div>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-5 h-5 text-white/20" />
-                      </button>
-
-                      <div className="pt-4 mt-4 border-t border-white/[0.06]">
-                        <button
-                          onClick={() => setMobileMenuOpen(false)}
-                          className="w-full p-4 rounded-xl bg-white/5 text-white/60 font-medium text-sm"
-                        >
-                          Fechar
-                        </button>
-                      </div>
                     </div>
                   </div>
                 </Drawer.Content>
               </Drawer.Portal>
             </Drawer.Root>
 
-            {/* Script Toggle Button (Floating) */}
             <button
               onClick={() => setScriptOpen(true)}
               className="fixed bottom-20 left-5 h-12 w-12 rounded-full flex items-center justify-center shadow-lg z-[90] bg-zinc-900/80 backdrop-blur-md border border-white/10 text-white"
-              aria-label="Abrir roteiro"
             >
               <Edit3 className="w-5 h-5" />
             </button>
 
-            {/* Mobile Script Drawer */}
             <Drawer.Root open={scriptOpen} onOpenChange={setScriptOpen}>
               <Drawer.Portal>
                 <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110]" />
@@ -2286,8 +1519,8 @@ export default function RecordingRoom() {
                   <div className="p-6 flex-1 flex flex-col overflow-hidden">
                     <div className="mx-auto w-12 h-1.5 flex-shrink-0 rounded-full bg-zinc-800 mb-8" />
                     <div className="flex items-center justify-between mb-6">
-                      <h2 className="text-xl font-bold">Roteiro</h2>
-                      <button onClick={() => setScriptOpen(false)} className="p-2 rounded-full bg-white/5 text-white/40" aria-label="Fechar roteiro">
+                      <h2 className="text-xl font-bold text-white">Roteiro</h2>
+                      <button onClick={() => setScriptOpen(false)} className="p-2 rounded-full bg-white/5 text-white/40">
                         <X className="w-5 h-5" />
                       </button>
                     </div>
