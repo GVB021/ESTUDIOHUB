@@ -114,6 +114,36 @@ export interface ScrollAnchor {
   scrollTop: number;
 }
 
+interface TakeRealtimePayload {
+  id: string;
+  sessionId: string;
+  lineIndex: number;
+  durationSeconds: number;
+  audioUrl: string;
+  createdAt: string;
+  voiceActorId: string;
+  voiceActorName: string;
+  characterName: string;
+  takeNumber: number;
+}
+
+interface RoomRealtimeMessage {
+  type: string;
+  currentTime?: number;
+  lineIndex?: number;
+  text?: string;
+  users?: Array<{ userId: string; name?: string; role?: string }>;
+  controllerUserIds?: string[];
+  permissions?: string[];
+  globalControl?: boolean;
+  serverTs?: number;
+  clientTs?: number;
+  sourceLatencyMs?: number;
+  isPlaying?: boolean;
+  loopRange?: { start: number; end: number } | null;
+  take?: TakeRealtimePayload;
+}
+
 import { DailyMeetPanel } from "@studio/components/video/DailyMeetPanel";
 
 const DEFAULT_SHORTCUTS: Shortcuts = {
@@ -561,6 +591,27 @@ export default function RecordingRoom() {
   const [globalControlEnabled, setGlobalControlEnabled] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState<any[]>([]);
   const [prerollInitiatorUserId, setPrerollInitiatorUserId] = useState<string | null>(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [networkRttMs, setNetworkRttMs] = useState(0);
+  const networkRttRef = useRef(0);
+  const [latencyReady, setLatencyReady] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const lastSyncCommandRef = useRef<{ isPlaying: boolean; atLocalTs: number; baseTime: number } | null>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  const resizeStateRef = useRef<{ startY: number; startHeight: number; maxHeight: number } | null>(null);
+  const [dailyPanelHeightPx, setDailyPanelHeightPx] = useState(() => {
+    try {
+      const raw = localStorage.getItem("vhub_daily_panel_height_px");
+      if (!raw) return 300;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : 300;
+    } catch {
+      return 300;
+    }
+  });
+  const [takeNotificationQueue, setTakeNotificationQueue] = useState<TakeRealtimePayload[]>([]);
+  const [activeTakeNotification, setActiveTakeNotification] = useState<TakeRealtimePayload | null>(null);
+  const takeNotificationAudioRef = useRef<HTMLAudioElement>(null);
 
   const isDirector = useMemo(() => {
     if (!user || !session?.participants) return false;
@@ -581,7 +632,7 @@ export default function RecordingRoom() {
 
   const emitVideoEvent = useCallback((type: string, data: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: `video:${type}`, ...data }));
+      wsRef.current.send(JSON.stringify({ type: `video-${type}`, ...data }));
     }
   }, []);
 
@@ -594,41 +645,138 @@ export default function RecordingRoom() {
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}/api/sessions/${sessionId}/ws`);
+    const ws = new WebSocket(`${protocol}//${host}/ws/video-sync?sessionId=${encodeURIComponent(sessionId)}`);
     wsRef.current = ws;
+    let pingTimer: number | null = null;
+
+    const syncWithServerCommand = (msg: RoomRealtimeMessage) => {
+      const video = videoRef.current;
+      if (!video) return;
+      const baseTime = Number(msg.currentTime || 0);
+      const serverTs = Number(msg.serverTs || Date.now());
+      const sourceLatencyMs = Number(msg.sourceLatencyMs || 0);
+      const now = Date.now();
+      const effectiveOneWay = Math.max(0, networkRttRef.current / 2);
+      const transitMs = Math.max(0, now - serverTs) + sourceLatencyMs + effectiveOneWay;
+      const predictedTime = baseTime + transitMs / 1000;
+      const targetPlaying = Boolean(msg.type === "video-play" || (msg.type === "sync:state" && msg.isPlaying));
+      const targetPaused = Boolean(msg.type === "video-pause" || (msg.type === "sync:state" && msg.isPlaying === false));
+
+      if (msg.type === "video-seek" || msg.type === "sync:state") {
+        const drift = Math.abs(video.currentTime - predictedTime);
+        if (drift > 0.1) {
+          video.currentTime = predictedTime;
+        }
+      }
+
+      if (targetPlaying) {
+        if (Math.abs(video.currentTime - predictedTime) > 0.1) {
+          video.currentTime = predictedTime;
+        }
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+        lastSyncCommandRef.current = { isPlaying: true, atLocalTs: now, baseTime };
+      }
+
+      if (targetPaused) {
+        if (Math.abs(video.currentTime - baseTime) > 0.1) {
+          video.currentTime = baseTime;
+        }
+        if (!video.paused) {
+          video.pause();
+        }
+        lastSyncCommandRef.current = { isPlaying: false, atLocalTs: now, baseTime };
+      }
+    };
+
+    ws.onopen = () => {
+      setWsConnected(true);
+      ws.send(JSON.stringify({ type: "sync:request-state" }));
+      pingTimer = window.setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ type: "sync:ping", clientTs: Date.now() }));
+      }, 1200);
+    };
 
     ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      
-      if (msg.type === "video:sync") {
-        const video = videoRef.current;
-        if (video) {
-          const diff = Math.abs(video.currentTime - msg.currentTime);
-          if (diff > 0.3) video.currentTime = msg.currentTime;
-          if (msg.isPlaying && video.paused) video.play().catch(() => {});
-          else if (!msg.isPlaying && !video.paused) video.pause();
+      const msg = JSON.parse(event.data) as RoomRealtimeMessage;
+
+      if (msg.type === "sync:pong" && typeof msg.clientTs === "number" && typeof msg.serverTs === "number") {
+        const now = Date.now();
+        const rtt = Math.max(0, now - msg.clientTs);
+        const offset = msg.serverTs - (msg.clientTs + rtt / 2);
+        setNetworkRttMs((prev) => {
+          const next = prev <= 0 ? rtt : prev * 0.7 + rtt * 0.3;
+          networkRttRef.current = next;
+          return next;
+        });
+        setServerOffsetMs((prev) => (prev === 0 ? offset : prev * 0.8 + offset * 0.2));
+        setLatencyReady(true);
+        return;
+      }
+
+      if (msg.type === "sync:state") {
+        syncWithServerCommand(msg);
+        if (msg.loopRange !== undefined) {
+          setCustomLoop(msg.loopRange || null);
+          setIsLooping(Boolean(msg.loopRange));
         }
-      } else if (msg.type === "video:seek") {
-        if (videoRef.current) videoRef.current.currentTime = msg.currentTime;
-      } else if (msg.type === "video:countdown") {
-        setCountdownValue(msg.count);
-        setPrerollInitiatorUserId(msg.initiatorUserId);
-        if (msg.count > 0 && micState?.audioContext) {
-          playCountdownBeep(micState.audioContext);
+        return;
+      }
+
+      if (msg.type === "video-play" || msg.type === "video-pause" || msg.type === "video-seek") {
+        syncWithServerCommand(msg);
+        return;
+      }
+
+      if (msg.type === "sync-loop") {
+        setCustomLoop(msg.loopRange || null);
+        setIsLooping(Boolean(msg.loopRange));
+        return;
+      }
+
+      if (msg.type === "take-completed" && msg.take) {
+        const currentRole = String(user?.role || "").toLowerCase();
+        const participantRole = String(session?.participants?.find((p: any) => p.userId === user?.id)?.role || "").toLowerCase();
+        const canReceive =
+          currentRole === "platform_owner" ||
+          participantRole === "diretor" ||
+          participantRole === "director" ||
+          participantRole === "studio_admin";
+        if (canReceive) {
+          setTakeNotificationQueue((prev) => [...prev, msg.take as TakeRealtimePayload]);
         }
-      } else if (msg.type === "text-control:update-line") {
+        return;
+      }
+
+      if (msg.type === "text-control:update-line") {
         setLineEdits((prev) => ({ ...prev, [msg.lineIndex]: msg.text }));
-      } else if (msg.type === "text-control:set-controllers") {
-        setTextControllerUserIds(new Set(msg.targetUserIds));
-      } else if (msg.type === "presence:update") {
+      } else if (msg.type === "text-control:state") {
+        setTextControllerUserIds(new Set(msg.controllerUserIds || []));
+      } else if (msg.type === "presence-sync") {
         setPresenceUsers(msg.users);
+      } else if (msg.type === "permission-sync") {
+        setGlobalControlEnabled(Boolean(msg.globalControl));
+        setControlPermissions(new Set(msg.permissions || []));
+      }
+    };
+
+    ws.onclose = () => {
+      setWsConnected(false);
+      setLatencyReady(false);
+      if (pingTimer !== null) {
+        window.clearInterval(pingTimer);
       }
     };
 
     return () => {
+      if (pingTimer !== null) {
+        window.clearInterval(pingTimer);
+      }
       ws.close();
     };
-  }, [sessionId, micState]);
+  }, [sessionId, micState, session?.participants, user?.id, user?.role]);
 
   const rebuildScrollAnchors = useCallback(() => {
     const viewport = scriptViewportRef.current;
@@ -964,6 +1112,73 @@ export default function RecordingRoom() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [shortcuts, handlePlayPause, handleStopRecording, handleStopPlayback, recordingStatus, startCountdown, seek, isLooping]);
 
+  useEffect(() => {
+    const panel = rightPanelRef.current;
+    if (!panel) return;
+    const maxHeight = panel.clientHeight;
+    setDailyPanelHeightPx((prev) => Math.max(0, Math.min(prev, maxHeight)));
+  }, [isMobile]);
+
+  useEffect(() => {
+    localStorage.setItem("vhub_daily_panel_height_px", String(Math.round(dailyPanelHeightPx)));
+  }, [dailyPanelHeightPx]);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const state = resizeStateRef.current;
+      if (!state) return;
+      const delta = event.clientY - state.startY;
+      const next = Math.max(0, Math.min(state.maxHeight, state.startHeight + delta));
+      setDailyPanelHeightPx(Math.round(next));
+    };
+    const onPointerUp = () => {
+      resizeStateRef.current = null;
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, []);
+
+  const handleDailyResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const panel = rightPanelRef.current;
+    if (!panel) return;
+    resizeStateRef.current = {
+      startY: event.clientY,
+      startHeight: dailyPanelHeightPx,
+      maxHeight: panel.clientHeight,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [dailyPanelHeightPx]);
+
+  useEffect(() => {
+    if (activeTakeNotification || takeNotificationQueue.length === 0) return;
+    setActiveTakeNotification(takeNotificationQueue[0]);
+    setTakeNotificationQueue((prev) => prev.slice(1));
+  }, [takeNotificationQueue, activeTakeNotification]);
+
+  const closeTakeNotification = useCallback(() => {
+    if (takeNotificationAudioRef.current) {
+      takeNotificationAudioRef.current.pause();
+      takeNotificationAudioRef.current.currentTime = 0;
+    }
+    setActiveTakeNotification(null);
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !lastSyncCommandRef.current) return;
+    const sync = lastSyncCommandRef.current;
+    if (!sync.isPlaying) return;
+    const expected = sync.baseTime + (Date.now() - sync.atLocalTs) / 1000;
+    const drift = Math.abs(video.currentTime - expected);
+    if (drift > 0.1) {
+      video.currentTime = expected;
+    }
+  }, [videoTime]);
+
   if (sessionLoading || productionLoading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-background">
@@ -1176,6 +1391,61 @@ export default function RecordingRoom() {
         </div>
       )}
 
+      {activeTakeNotification && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm px-4">
+          <div className="w-full max-w-xl rounded-2xl border border-border/70 bg-card shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border/70">
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-foreground">Take finalizado</span>
+                <span className="text-xs text-muted-foreground">Notificação instantânea da sessão</span>
+              </div>
+              <button
+                onClick={closeTakeNotification}
+                className="transition-colors text-muted-foreground hover:text-foreground"
+                type="button"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                  <span className="block text-muted-foreground">Dublador</span>
+                  <span className="font-medium text-foreground">{activeTakeNotification.voiceActorName}</span>
+                </div>
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                  <span className="block text-muted-foreground">Take</span>
+                  <span className="font-medium text-foreground">#{activeTakeNotification.takeNumber}</span>
+                </div>
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                  <span className="block text-muted-foreground">Personagem</span>
+                  <span className="font-medium text-foreground">{activeTakeNotification.characterName}</span>
+                </div>
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                  <span className="block text-muted-foreground">Duração</span>
+                  <span className="font-medium text-foreground">{Number(activeTakeNotification.durationSeconds || 0).toFixed(2)}s</span>
+                </div>
+              </div>
+              <audio
+                ref={takeNotificationAudioRef}
+                controls
+                className="w-full"
+                src={`/api/takes/${activeTakeNotification.id}/stream`}
+                preload="metadata"
+              />
+            </div>
+            <div className="px-6 pb-5 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Fila pendente: {takeNotificationQueue.length}
+              </span>
+              <button className="vhub-btn-xs vhub-btn-primary" onClick={closeTakeNotification} type="button">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <audio ref={previewAudioRef} preload="none" />
 
       <header className="shrink-0 flex items-center justify-between px-3 h-12 sm:h-14 relative z-20" style={{ background: "hsl(var(--background) / 0.90)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: "1px solid hsl(var(--border) / 0.9)" }}>
@@ -1233,6 +1503,13 @@ export default function RecordingRoom() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-3">
+          <div className={cn(
+            "hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-medium",
+            wsConnected && latencyReady ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-amber-500/10 border-amber-500/20 text-amber-500",
+          )}>
+            <span>{wsConnected ? "SYNC" : "OFFLINE"}</span>
+            <span className="font-mono">{Math.round(networkRttMs)}ms</span>
+          </div>
           {recordingStatus === "recording" && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-[10px] font-bold text-red-500 animate-pulse">
               <Circle className="w-2 h-2 fill-current" /> <span className="hidden xs:inline">REC</span>
@@ -1426,11 +1703,27 @@ export default function RecordingRoom() {
           </div>
         </div>
 
-        <div className="flex flex-col min-h-0 bg-background/40 relative">
+        <div ref={rightPanelRef} className="flex flex-col min-h-0 bg-background/40 relative">
+          <div className="shrink-0 px-4 pt-3">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Daily.co</span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                offset {Math.round(serverOffsetMs)}ms
+              </span>
+            </div>
+            <div style={{ height: `${dailyPanelHeightPx}px` }} className="w-full max-h-full">
+              <DailyMeetPanel sessionId={sessionId} />
+            </div>
+            <div
+              role="separator"
+              onPointerDown={handleDailyResizeStart}
+              className="mt-2 h-2 cursor-row-resize rounded-md bg-muted/50 hover:bg-primary/30 transition-colors"
+              data-testid="daily-panel-resize-handle"
+            />
+          </div>
+
           <div className="h-11 shrink-0 px-5 flex items-center justify-between border-b border-border/70 bg-muted/30">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Roteiro
-            </span>
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Roteiro</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -1460,34 +1753,33 @@ export default function RecordingRoom() {
               scrollSyncCurrentRef.current = scriptViewportRef.current?.scrollTop || 0;
             }}
           >
-              {scriptLines.map((line, i) => {
-                const isActive = i === currentLine;
-                const isDone = savedTakes.has(i);
-                return (
-                  <div
-                    key={i}
-                    ref={(el) => { lineRefs.current[i] = el; }}
-                    onClick={canTextControl ? (() => handleLineClick(i)) : undefined}
-                    className={cn(
-                      "mb-3 px-5 py-4 rounded-xl transition-all duration-300 relative overflow-hidden",
-                      isActive ? "bg-background/85 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] backdrop-blur-md" : "bg-transparent",
-                      canTextControl ? "cursor-pointer" : "cursor-default"
-                    )}
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-[16px] font-mono tabular-nums text-muted-foreground">{formatTimecode(line.start)}</span>
-                      <span className={cn("text-[24px] font-extrabold uppercase tracking-tight", isActive ? "text-primary" : "text-muted-foreground")}>
-                        {line.character}
-                      </span>
-                      {isDone && <CheckCircle2 className="w-5 h-5 ml-auto text-emerald-500" />}
-                    </div>
-                    <p className={cn("text-[22px] leading-relaxed", isActive ? "text-foreground font-medium" : "text-muted-foreground")}>
-                      {lineEdits[i] ?? line.text}
-                    </p>
+            {scriptLines.map((line, i) => {
+              const isActive = i === currentLine;
+              const isDone = savedTakes.has(i);
+              return (
+                <div
+                  key={i}
+                  ref={(el) => { lineRefs.current[i] = el; }}
+                  onClick={canTextControl ? (() => handleLineClick(i)) : undefined}
+                  className={cn(
+                    "mb-3 px-5 py-4 rounded-xl transition-all duration-300 relative overflow-hidden",
+                    isActive ? "bg-background/85 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] backdrop-blur-md" : "bg-transparent",
+                    canTextControl ? "cursor-pointer" : "cursor-default"
+                  )}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-[16px] font-mono tabular-nums text-muted-foreground">{formatTimecode(line.start)}</span>
+                    <span className={cn("text-[24px] font-extrabold uppercase tracking-tight", isActive ? "text-primary" : "text-muted-foreground")}>
+                      {line.character}
+                    </span>
+                    {isDone && <CheckCircle2 className="w-5 h-5 ml-auto text-emerald-500" />}
                   </div>
-                );
-              })}
-            </div>
+                  <p className={cn("text-[22px] leading-relaxed", isActive ? "text-foreground font-medium" : "text-muted-foreground")}>
+                    {lineEdits[i] ?? line.text}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -1592,7 +1884,6 @@ export default function RecordingRoom() {
         )}
       </AnimatePresence>
 
-      <DailyMeetPanel sessionId={sessionId} />
     </div>
   );
 }

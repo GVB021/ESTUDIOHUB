@@ -34,6 +34,7 @@ import {
   uploadToSupabaseStorage,
 } from "./lib/supabase";
 import { decideStudioAutoEntry } from "./lib/studio-auto-entry";
+import { enqueueTakeCompletedNotification } from "./video-sync";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -57,6 +58,11 @@ const mediaUpload = multer({
   }),
   limits: { fileSize: 1024 * 1024 * 1024 },
 });
+
+function isTakeNotificationReceiverRole(role: unknown) {
+  const normalized = String(role || "").trim().toLowerCase();
+  return normalized === "diretor" || normalized === "director" || normalized === "studio_admin";
+}
 
 function safeAudioPath(audioUrl: string): string | null {
   const normalized = audioUrl.replace(/^\/+/, "");
@@ -974,7 +980,75 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      logger.info("[Take Upload] Completed", { takeId: take.id, sessionId });
+      const [voiceActorMeta, characterMeta, takeCountMeta] = await Promise.all([
+        db.select({
+          displayName: users.displayName,
+          artistName: users.artistName,
+          fullName: users.fullName,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          email: users.email,
+        }).from(users).where(eq(users.id, take.voiceActorId)).limit(1),
+        db.select({ name: characters.name }).from(characters).where(eq(characters.id, take.characterId)).limit(1),
+        db.select({ count: db.$count(takes) })
+          .from(takes)
+          .where(and(eq(takes.sessionId, sessionId), eq(takes.lineIndex, take.lineIndex))),
+      ]);
+
+      const voiceActorName =
+        voiceActorMeta[0]?.artistName ||
+        voiceActorMeta[0]?.displayName ||
+        voiceActorMeta[0]?.fullName ||
+        `${voiceActorMeta[0]?.firstName || ""} ${voiceActorMeta[0]?.lastName || ""}`.trim() ||
+        voiceActorMeta[0]?.email ||
+        "Dublador";
+      const characterName = String(characterMeta[0]?.name || "Personagem");
+      const takeNumber = Number(takeCountMeta[0]?.count || 1);
+
+      const participants = await storage.getSessionParticipants(sessionId);
+      const privilegedParticipantIds = Array.from(
+        new Set(
+          participants
+            .filter((p) => isTakeNotificationReceiverRole(p.role))
+            .map((p) => String(p.userId || ""))
+            .filter(Boolean),
+        ),
+      );
+      const platformOwners = await db.select({ id: users.id }).from(users).where(eq(users.role, "platform_owner"));
+      const targetUserIds = Array.from(
+        new Set([
+          ...privilegedParticipantIds,
+          ...platformOwners.map((u) => String(u.id || "")).filter(Boolean),
+        ]),
+      );
+
+      await Promise.all(
+        targetUserIds.map((targetUserId) =>
+          storage.createNotification({
+            userId: targetUserId,
+            type: "take_completed",
+            title: "Novo take finalizado",
+            message: `${voiceActorName} finalizou o take ${takeNumber} na linha ${take.lineIndex + 1}`,
+            relatedId: take.id,
+            isRead: false,
+          }),
+        ),
+      );
+
+      enqueueTakeCompletedNotification(sessionId, {
+        id: String(take.id),
+        sessionId,
+        lineIndex: Number(take.lineIndex || 0),
+        durationSeconds: Number(take.durationSeconds || 0),
+        audioUrl: String((take as any).audioUrl || ""),
+        createdAt: new Date((take as any).createdAt || Date.now()).toISOString(),
+        voiceActorId: String(take.voiceActorId),
+        voiceActorName: String(voiceActorName),
+        characterName,
+        takeNumber,
+      });
+
+      logger.info("[Take Upload] Completed", { takeId: take.id, sessionId, notifiedUsers: targetUserIds.length });
       res.status(201).json(take);
     } catch (err: any) {
       logger.error("[Take Upload] Create error", { message: err?.message });
